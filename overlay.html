@@ -317,7 +317,7 @@ setInterval(() => {
 
 /* ---------- hearing: the meeting (them) and, if you turn it on, your microphone (me) ---------- */
 const RATE = 16000; // speech-to-text needs no more than this
-const listener = (speaker) => ({ speaker, stream: null, ctx: null, on: false, starting: false, userStopped: false, piece: null, quiet: 0, background: 0.003, lastFrame: null });
+const listener = (speaker) => ({ speaker, stream: null, ctx: null, on: false, starting: false, userStopped: false, piece: null, quiet: 0, background: 0.003, lastFrame: null, turnOpen: false, after: 0 });
 const meeting = listener('them'), mine = listener('me');
 let sendQueue = Promise.resolve(), warnedAt = 0, micWanted = false, heardBy = null;
 try { micWanted = localStorage.getItem('overlay-mic') === 'on'; } catch {}
@@ -377,17 +377,25 @@ function onSound(l, samples) {
   for (const v of samples) sum += v * v;
   const level = Math.sqrt(sum / samples.length), loud = level > Math.max(0.01, l.background * 3);
   if (!loud && !l.piece) l.background = l.background * 0.95 + level * 0.05; // keep learning how loud "quiet" is
-  if (loud && !l.piece) l.piece = { frames: l.lastFrame ? [l.lastFrame] : [], loudFrames: 0 }; // keep a little sound from before the first word
+  if (loud && !l.piece) { l.piece = { frames: l.lastFrame ? [l.lastFrame] : [], loudFrames: 0 }; l.after = 0; } // keep a little sound from before the first word
   l.lastFrame = new Float32Array(samples);
-  if (!l.piece) return;
+  if (!l.piece) { // about 1 s of quiet after speech: they finished talking, so Auto Answer can answer
+    if (l.turnOpen && ++l.after >= 4) { l.turnOpen = false; if (l === meeting) endTurn(); }
+    return;
+  }
   l.piece.frames.push(l.lastFrame);
   if (loud) { l.piece.loudFrames++; l.quiet = 0; } else l.quiet++;
   $('wave').classList.toggle('speaking', !!(meeting.piece || mine.piece));
   const seconds = (l.piece.frames.length * samples.length) / RATE;
   if (l.quiet >= 4 || seconds >= 10) {
     const done = l.piece; l.piece = null; l.quiet = 0;
-    if (done.loudFrames >= 5) sendSpeech(done.frames, l.speaker); // skip coughs and clicks under ~0.6 s
+    if (done.loudFrames >= 5) { sendSpeech(done.frames, l.speaker); l.turnOpen = true; } // skip coughs and clicks under ~0.6 s
   }
+}
+// Queued behind the speech, so the server has written down everything said before it answers.
+function endTurn() {
+  const id = state.session?.id;
+  if (id && isLive()) sendQueue = sendQueue.then(() => fetch(`/api/sessions/${id}/pause`, { method: 'POST' }).catch(() => {}));
 }
 function toWavBase64(frames) {
   const n = frames.reduce((a, f) => a + f.length, 0), view = new DataView(new ArrayBuffer(44 + n * 2));

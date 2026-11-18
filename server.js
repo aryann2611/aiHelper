@@ -31,20 +31,30 @@ const snapshot = (s) => ({
   liveSince: s.liveSince, durationMin: s.durationMin, transcript: s.transcript.slice(-12), answers: s.answers.slice(-10),
 });
 
-// Auto Answer for meeting audio: speech arrives in pieces, so wait for a short pause, then answer if
-// any piece reads like a question. The answer streams to the overlay; nobody waits on an HTTP reply.
-const pendingSpeech = new Map(); // call id -> { texts, timer }
-function autoAnswer(s, text) {
-  const p = pendingSpeech.get(s.id) ?? { texts: [] };
-  pendingSpeech.set(s.id, p);
+// Auto Answer for meeting audio. Speech arrives in pieces cut at short pauses, so the pieces are collected
+// until the overlay reports the speaker stopped (about 1 s of quiet), then answered as one question if they
+// read like one. The answer streams to the overlay; nobody waits on an HTTP reply.
+const pendingSpeech = new Map(); // call id -> { texts, timer, last: { question, at } }
+const speech = (s) => pendingSpeech.get(s.id) ?? pendingSpeech.set(s.id, { texts: [] }).get(s.id);
+function heard(s, text) {
+  const p = speech(s);
   p.texts.push(text);
   clearTimeout(p.timer);
-  p.timer = setTimeout(() => {
-    pendingSpeech.delete(s.id);
-    if (s.ended || !s.autoAnswer || s.mode === 'mock' || !p.texts.some(store.isQuestion)) return;
-    const question = p.texts.join(' ');
-    streamAnswer(null, s, question, 'auto-ai-help', ai.answerPrompt(s, resumeOf(s), question));
-  }, 400); // short: a pause was already detected before the speech was sent
+  p.timer = setTimeout(() => turnEnded(s), 4000); // in case the overlay's "stopped speaking" never arrives
+}
+function turnEnded(s) {
+  const p = speech(s);
+  clearTimeout(p.timer);
+  let question = p.texts.join(' ');
+  p.texts = [];
+  if (!question || s.ended || !s.autoAnswer || s.mode === 'mock') return;
+  // A long pause in the middle of a question: what follows soon after is the rest of it ("…a project you led").
+  if (!store.isQuestion(question)) {
+    if (!p.last || Date.now() - p.last.at > 8000) return;
+    question = `${p.last.question} ${question}`;
+  }
+  p.last = { question, at: Date.now() };
+  streamAnswer(null, s, question, 'auto-ai-help', ai.answerPrompt(s, resumeOf(s), question));
 }
 function subscribe(req, res) {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -187,9 +197,10 @@ async function route(req, res, u) {
       if (!said) return send(res, 200, { line: null, heardBy });
       const line = store.addLine(id, { speaker, text: said.slice(0, 2000) }); save();
       publish('line', { sessionId: s.id, line });
-      if (speaker === 'them') autoAnswer(s, line.text);
+      if (speaker === 'them') heard(s, line.text);
       return send(res, 201, { line, heardBy });
     }
+    case 'pause': { turnEnded(s); return send(res, 200, { ok: true }); } // the meeting went quiet: answer what was asked
     case 'lines': {
       const line = store.addLine(id, await readJson(req)); save();
       publish('line', { sessionId: s.id, line });

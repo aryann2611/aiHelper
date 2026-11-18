@@ -176,8 +176,10 @@
     return docSummary(d);
   }
 
-  // Does a line of speech read like a question? Used for Auto Answer by the app and the server.
-  const isQuestion = (t) => /\?\s*$/.test(t) || /^(so,?\s+|and\s+|okay,?\s+|now,?\s+)?(what|why|how|when|where|who|which|can|could|would|will|do|does|did|have|has|is|are|tell me|describe|walk me|explain|give me|share)\b/i.test(String(t).trim());
+  // Does speech read like a question or a request to answer? Any sentence counts, after filler words
+  // ("Okay. So what…", "Great, thanks. Walk me through…"). Used for Auto Answer by the app and the server.
+  const ASKS = /^(?:(?:so|and|okay|ok|alright|now|well|great|cool|right|next|then|also|um|uh|perfect|nice|thanks)[,.!]?\s+)*(?:what|why|how|when|where|who|which|can|could|would|will|should|do|does|did|have|has|is|are|was|were|tell (?:me|us)|talk (?:me|us) through|walk (?:me|us)|describe|explain|give (?:me|us)|share|let['’]s (?:talk|discuss)|i['’]d (?:like|love) to (?:hear|know)|i want to (?:hear|know)|i['’]m curious)\b/i;
+  const isQuestion = (t) => String(t).trim().split(/(?<=[.?!])\s+/).some((x) => /\?$/.test(x) || ASKS.test(x));
 
   const api = {
     query, create, update, remove, get: find, start, end, addLine, isQuestion,

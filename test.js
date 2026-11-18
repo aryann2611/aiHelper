@@ -91,4 +91,11 @@ assert.ok(html.includes('<span class="lang">java</span>') && html.includes('<spa
 assert.ok(html.includes('<span class="tk-c">// one</span>') && html.includes('<span class="tk-s">&#34;a # b&#34;</span>'));
 assert.ok(html.includes('<li><code>x</code> is <strong>one</strong> &#60;b&#62;</li>'));
 assert.ok(md('```py\nprint(1)').includes('<pre class="code">'));
+
+// Auto Answer: questions anywhere in what was said, after filler words; plain statements are not answered
+for (const q of ['Okay. So what made you leave Acme', 'Great, thanks. Walk me through your last project.', 'I’d like to hear about a conflict you handled.',
+  'That sounds good. Can you explain how a hash map works', 'Tell me about yourself.', 'and the deadline was tight?', "Let's talk about system design."])
+  assert.ok(db.isQuestion(q), q);
+for (const t of ['Thanks for joining today.', 'We are a payments company with 200 engineers.', 'Okay.', 'Sounds good, thank you.'])
+  assert.ok(!db.isQuestion(t), t);
 console.log('ok');
