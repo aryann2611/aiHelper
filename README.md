@@ -31,7 +31,7 @@ to the AI provider you chose.
 ## Setup
 
 ```bash
-git clone https://github.com/abhishek1413/aiHelper.git
+git clone https://github.com/aryann2611/aiHelper.git
 cd aiHelper
 npm install
 copy .env.example .env      # on macOS/Linux: cp .env.example .env
