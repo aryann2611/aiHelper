@@ -4,8 +4,23 @@ A private AI assistant for calls and interviews. It listens to your meeting, sug
 overlay that screen sharing can't see, answers questions about what's on your screen, writes notes after the
 call, and runs mock interviews to practise with.
 
-Everything runs on your own computer with your own AI key. Your key never leaves your machine except to talk
-to the AI provider you chose.
+Everything runs on your own computer with your own AI keys. Keys never leave your machine except to talk to
+the AI services you chose.
+
+## Download
+
+**[Download aiHelper for Windows](https://github.com/aryann2611/aiHelper/releases/latest/download/aiHelper-Setup.exe)**
+· website: <https://aryann2611.github.io/aiHelper>
+
+1. Run `aiHelper-Setup.exe`. If Windows says "Windows protected your PC", click **More info**, then **Run anyway**
+   (the app isn't signed with a paid certificate).
+2. aiHelper opens **⚙ Settings** on first start. Paste your keys:
+   - [Groq](https://console.groq.com/keys) (free): hears the meeting
+   - [Gemini](https://aistudio.google.com/apikey) (free): backup for hearing when Groq's free limit is reached
+   - [Claude](https://console.anthropic.com/settings/keys): writes the answers
+3. Press **Start a call** in the overlay, join your meeting, and answers appear as questions are asked.
+
+Keys are saved only in `%APPDATA%\aiHelper` on that PC. The download contains no keys.
 
 ## Features
 
@@ -21,50 +36,29 @@ to the AI provider you chose.
 - **Resumes and documents.** Upload a PDF or text resume or job description; answers use it.
 - **Mock interviews.** An AI interviewer asks questions out loud and gives you feedback with a score.
 
-## Requirements
+## Run from source
 
-- Windows 10 (version 2004 or later) or Windows 11
-- [Node.js](https://nodejs.org) 22 or later
-- Google Chrome (for your own microphone in the session page)
-- An API key from one of: Google Gemini (free), OpenAI, or Anthropic (Claude)
-
-## Setup
+Needs Windows 10 (version 2004 or later) or 11 and [Node.js](https://nodejs.org) 22 or later.
 
 ```bash
 git clone https://github.com/aryann2611/aiHelper.git
 cd aiHelper
 npm install
-copy .env.example .env      # on macOS/Linux: cp .env.example .env
-```
-
-Open `.env` in a text editor and paste your key after the matching `=`. Set `AI_PROVIDER` to `gemini`,
-`openai` or `claude`. With `claude`, also add a Gemini key: it is used to hear the meeting, because Claude
-can't listen to audio.
-
-## Use it
-
-```bash
+copy .env.example .env      # then paste your keys into .env
 npm run overlay
 ```
 
-1. The overlay opens at the top of your screen and the app starts at <http://localhost:3000>.
-2. Open <http://localhost:3000> in Chrome, create a session (role, company, resume, AI model), and press
-   **Start call**. Allow the microphone when Chrome asks.
-3. Join your meeting. The overlay's 🎧 **Listening** button shows it is hearing the meeting. Questions appear
-   as chips and answers stream into the overlay.
-4. Press **End call** (or **Exit** in the overlay). AI notes are written from the transcript.
+`AI_PROVIDER` in `.env` picks who writes answers: `claude` (default), `gemini` or `openai`. Meeting audio is
+written down by Groq, falling back to Gemini.
 
-Run `npm start` instead to use only the web app, without the overlay.
+- `npm start` runs only the web app at <http://localhost:3000>, without the overlay.
+- `npm run dist` builds the installer into `dist/`.
+- `npm test` runs the self-checks.
 
 ## Privacy
 
-- API keys stay in `.env` on your computer. `.env` is in `.gitignore` and is never served to the browser.
-- While a call is live, the overlay sends your computer's sound to the AI provider to be written down, and
+- API keys stay in `.env` (or `%APPDATA%\aiHelper\.env` for the installed app). It is in `.gitignore`, is never
+  served to the browser, and the app only accepts requests from your own computer.
+- While a call is live, the overlay sends your computer's sound to the hearing service to be written down, and
   screenshots you take are sent to the AI. Stop listening with the 🎧 button when you don't need it.
-- Sessions, transcripts and documents are saved in `data.json` in the project folder. Delete it to start over.
-
-## Notes
-
-- On the free Gemini plan, an answer takes about 5–20 seconds and busy meetings can hit the free rate limit.
-- While the overlay runs, `Ctrl+Enter`, `Ctrl+Shift+Enter` and `Ctrl+Shift+Space` go to the overlay from any app.
-- `npm test` runs the self-checks.
+- Sessions, transcripts and documents are saved in `data.json` next to `.env`. Delete it to start over.

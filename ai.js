@@ -1,27 +1,33 @@
 // AI calls for the live assistant, AI notes, Ask AI, mock interviews and PDF import.
-// AI_PROVIDER in .env picks the provider: openai and gemini use the OpenAI SDK, claude uses Anthropic's.
+// AI_PROVIDER in .env picks the provider (claude if unset): openai and gemini use the OpenAI SDK, claude uses Anthropic's.
 const OpenAI = require('openai');
 const Anthropic = require('@anthropic-ai/sdk');
 
+// The first model of each provider is the default for new sessions: the fast one, since live answers are
+// what's waited on during a call (measured first words: Claude Haiku 5.5 ~0.7 s, Opus 5.5 ~2.2 s).
 const PROVIDERS = {
   claude: {
-    name: 'Claude', keyVar: 'ANTHROPIC_API_KEY', sdk: 'anthropic', pdfModel: 'claude-opus-5-5',
-    models: [['claude-opus-5-5', 'Claude Opus 5.5 (best answers)'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (balanced)'], ['claude-haiku-4-5', 'Claude Haiku 4.5 (fastest)']],
+    id: 'claude', name: 'Claude', keyVar: 'ANTHROPIC_API_KEY', sdk: 'anthropic', pdfModel: 'claude-haiku-5-5',
+    models: [['claude-haiku-5-5', 'Claude Haiku 5.5 (fastest, best for live calls)'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (balanced)'], ['claude-opus-5-5', 'Claude Opus 5.5 (best answers, slower)']],
   },
   openai: {
-    name: 'OpenAI', keyVar: 'OPENAI_API_KEY', pdfModel: 'gpt-5.4-mini', audioModel: 'gpt-4o-mini-transcribe',
-    models: [['gpt-5.5', 'GPT-5.5 (best answers)'], ['gpt-5.4-mini', 'GPT-5.4 mini (balanced)'], ['gpt-5.4-nano', 'GPT-5.4 nano (fastest)']],
+    id: 'openai', name: 'OpenAI', keyVar: 'OPENAI_API_KEY', pdfModel: 'gpt-5.4-mini', audioModel: 'gpt-4o-mini-transcribe',
+    models: [['gpt-5.4-mini', 'GPT-5.4 mini (fast)'], ['gpt-5.4-nano', 'GPT-5.4 nano (fastest)'], ['gpt-5.5', 'GPT-5.5 (best answers, slower)']],
   },
+  // Groq only writes down speech: Whisper there takes about half a second, with a generous free plan.
+  groq: { id: 'groq', name: 'Groq', keyVar: 'GROQ_API_KEY', baseURL: 'https://api.groq.com/openai/v1', audioModel: 'whisper-large-v3-turbo', models: [] },
   gemini: {
-    name: 'Google Gemini', keyVar: 'GEMINI_API_KEY', pdfModel: 'gemini-3.5-flash-lite', audioModel: 'gemini-3.5-flash-lite',
+    id: 'gemini', name: 'Google Gemini', keyVar: 'GEMINI_API_KEY', pdfModel: 'gemini-3.5-flash-lite', audioModel: 'gemini-3.5-flash-lite',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     // Free-plan models that answered in testing; the 2.5 models are closed to new users and Pro isn't free.
     models: [['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite (fast, free)'], ['gemini-3.5-flash', 'Gemini 3.5 Flash (smarter, sometimes busy)']],
   },
 };
-const provider = PROVIDERS[process.env.AI_PROVIDER] ?? PROVIDERS.openai;
-// Claude can't listen to audio, so with Claude the meeting is written down by Gemini (or OpenAI) if that key is there.
-const hearing = provider.sdk !== 'anthropic' ? provider : process.env.GEMINI_API_KEY ? PROVIDERS.gemini : PROVIDERS.openai;
+const provider = (process.env.AI_PROVIDER !== 'groq' && PROVIDERS[process.env.AI_PROVIDER]) || PROVIDERS.claude;
+// Who writes down speech: Groq if there's a key (fastest), else the answering provider, else Gemini
+// (Claude can't listen to audio), else OpenAI.
+const hearing = process.env.GROQ_API_KEY ? PROVIDERS.groq
+  : provider.sdk !== 'anthropic' ? provider : process.env.GEMINI_API_KEY ? PROVIDERS.gemini : PROVIDERS.openai;
 
 const clients = new Map();
 function getClient(p = provider) {
@@ -51,8 +57,8 @@ function toClaudePart(p) {
 function claudeRequest({ model, effort = 'low', system, messages, maxTokens }) {
   const body = { model, max_tokens: maxTokens, messages: messages.map((m) => ({ role: m.role, content: typeof m.content === 'string' ? m.content : m.content.map(toClaudePart) })) };
   if (system) body.system = system;
-  if (model !== 'claude-haiku-4-5') {
-    body.output_config = { effort };              // Opus 5.5 / Sonnet 5.5 think adaptively; effort sets how much
+  if (model !== 'claude-haiku-4-5') body.output_config = { effort }; // 5.5 models think adaptively; effort sets how much
+  if (/opus|sonnet/.test(model)) {
     body.betas = ['server-side-fallback-2026-07-01'];
     body.fallbacks = 'default';                   // a declined request is re-run on Anthropic's recommended fallback model
   }
@@ -90,27 +96,37 @@ async function ask(opts, onText = () => {}, signal) {
 
 // Meeting audio → text. One short WAV clip (a stretch of speech between pauses) at a time.
 const NO_SPEECH = /^[\s\W]*$|^[[(]?(no speech|silence|inaudible|music|background noise)[\])]?\.?$/i;
-async function transcribe(base64) {
-  let text;
-  try {
-    if (hearing === PROVIDERS.gemini) {
-      const r = await getClient(hearing).chat.completions.create({
-        model: hearing.audioModel, max_completion_tokens: 1000,
-        messages: [{ role: 'user', content: [
-          { type: 'input_audio', input_audio: { data: base64, format: 'wav' } },
-          { type: 'text', text: 'Transcribe the speech in this audio exactly. Output only the spoken words. If there is no speech, output nothing.' },
-        ] }],
-      });
-      text = r.choices[0]?.message?.content ?? '';
-    } else {
-      const r = await getClient(hearing).audio.transcriptions.create({ model: hearing.audioModel, file: await OpenAI.toFile(Buffer.from(base64, 'base64'), 'speech.wav') });
-      text = r.text ?? '';
-    }
-  } catch (e) {
-    throw Object.assign(new Error(errorMessage(e, hearing)), { friendly: true }); // name the service that failed, not the answering one
+async function transcribeWith(p, base64, language) {
+  const file = () => OpenAI.toFile(Buffer.from(base64, 'base64'), 'speech.wav');
+  if (p === PROVIDERS.gemini) {
+    const r = await getClient(p).chat.completions.create({
+      model: p.audioModel, max_completion_tokens: 1000,
+      messages: [{ role: 'user', content: [
+        { type: 'input_audio', input_audio: { data: base64, format: 'wav' } },
+        { type: 'text', text: 'Transcribe the speech in this audio exactly. Output only the spoken words. If there is no speech, output nothing.' },
+      ] }],
+    });
+    return r.choices[0]?.message?.content ?? '';
   }
-  text = text.trim();
-  return NO_SPEECH.test(text) ? '' : text;
+  // Groq (Whisper) and OpenAI share the transcription API; naming the language makes Whisper faster and more accurate.
+  const r = await getClient(p).audio.transcriptions.create({ model: p.audioModel, file: await file(), ...(p === PROVIDERS.groq && language ? { language: language.slice(0, 2) } : {}) });
+  return r.text ?? '';
+}
+// Free plans have per-minute and daily limits. If one service is busy, out of quota or failing, the next one
+// with a key takes over, so a long meeting keeps being written down: Groq, then Gemini. (Answers are never
+// moved to another provider; only this step switches.) Returns the text and who wrote it down.
+async function transcribe(base64, language) {
+  const order = [hearing, PROVIDERS.groq, PROVIDERS.gemini].filter((p, i, all) => all.indexOf(p) === i && process.env[p.keyVar]);
+  let lastError;
+  for (const p of order) {
+    try {
+      const text = (await transcribeWith(p, base64, language)).trim();
+      return { text: NO_SPEECH.test(text) ? '' : text, by: p.name };
+    } catch (e) {
+      lastError = Object.assign(new Error(errorMessage(e, p)), { friendly: true }); // name the service that failed
+    }
+  }
+  throw lastError ?? Object.assign(new Error('aiHelper can’t hear the meeting yet: add a free Groq or Gemini key in Settings.'), { friendly: true });
 }
 
 // Plain-language error for the user. Both SDKs use the same error class names.
@@ -122,6 +138,7 @@ function errorMessage(e, p = provider) {
   if (is('PermissionDeniedError') || is('NotFoundError')) return `Your ${name} key can't use this AI model. Pick another model in the session's settings.`;
   if (is('RateLimitError')) {
     if (p === PROVIDERS.gemini) return 'Gemini’s free limit was reached. Wait a minute and try again (the free plan also has a daily limit).';
+    if (p === PROVIDERS.groq) return 'Groq’s free limit was reached. Wait a minute; meanwhile Gemini takes over if you added its key.';
     if (p === PROVIDERS.claude) return 'Claude is rate-limiting requests. Wait a few seconds and try again.';
     return e.type === 'insufficient_quota' || /quota|credit/i.test(e.code ?? '') // e.g. credit_balance_exhausted
       ? 'Your OpenAI account has no API credit left. Add credit at platform.openai.com under Billing.'
@@ -210,4 +227,4 @@ const pdfPrompt = (base64) => ({
   ] }],
 });
 
-module.exports = { provider, ask, transcribe, errorMessage, hasCredentials, answerPrompt, directPrompt, screenshotPrompt, notesPrompt, chatPrompt, mockPrompt, pdfPrompt };
+module.exports = { provider, hearing, ask, transcribe, errorMessage, hasCredentials, answerPrompt, directPrompt, screenshotPrompt, notesPrompt, chatPrompt, mockPrompt, pdfPrompt };

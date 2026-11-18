@@ -614,9 +614,22 @@ function stopLive() {
 // endedElsewhere: the overlay's Exit button already ended the call on the server.
 async function endCall(endedElsewhere = false) {
   stopLive();
-  try { current = await api(endedElsewhere ? 'GET' : 'POST', `/api/sessions/${current.id}${endedElsewhere ? '' : '/end'}`); } catch (e) { toast(e.message); }
+  try {
+    current = endedElsewhere ? await api('GET', `/api/sessions/${current.id}`)
+      : await api('POST', `/api/sessions/${current.id}/end`, { skipNotes: true }); // this page writes the notes itself, on screen
+  } catch (e) { toast(e.message); }
   pane = 'notes'; showView('session'); renderSession(); refetch();
-  if (current.transcript.length && aiReady) generateNotes();
+  if (!current.transcript.length || !aiReady) return;
+  if (!endedElsewhere) return generateNotes();
+  // Ended from the overlay: the app is already writing the notes. Show them when they're ready.
+  toast('AI notes are being written. They appear here in a moment.');
+  const id = current.id;
+  for (let i = 0; i < 30 && !current.notes; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (current?.id !== id || view !== 'session') return;
+    current = await api('GET', `/api/sessions/${id}`).catch(() => current);
+  }
+  if (view === 'session' && current?.id === id) renderSession();
 }
 
 /* ================= documents ================= */

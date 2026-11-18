@@ -1,15 +1,21 @@
-// Serves the app and its API. Run: `node server.js`. The AI provider and key come from .env (see ai.js).
-// Data is saved to data.json next to this file; delete it to go back to the sample sessions.
+// Serves the app and its API, only to this computer. Run: `node server.js`.
+// Settings (.env: AI provider and keys) and data (data.json) live next to this file, or in AIHELPER_DATA
+// when set (the installed app uses %APPDATA%\aiHelper, since the program folder is read-only).
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-try { process.loadEnvFile(path.join(__dirname, '.env')); } catch {} // OPENAI_API_KEY from .env, if the file exists
+const DATA_DIR = process.env.AIHELPER_DATA || __dirname;
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const ENV_FILE = path.join(DATA_DIR, '.env');
+try { process.loadEnvFile(ENV_FILE); } catch {} // AI_PROVIDER and keys, if the file exists
 const store = require('./sessions');
 const ai = require('./ai');
 store.setModels(ai.provider.models.map(([id]) => id));
+const PORT = Number(process.env.PORT) || 3000;
 
-const DB = path.join(__dirname, 'data.json');
-try { store.setData(JSON.parse(fs.readFileSync(DB, 'utf8'))); } catch {} // first run: keep sample data
+const DB = path.join(DATA_DIR, 'data.json');
+try { store.setData(JSON.parse(fs.readFileSync(DB, 'utf8'))); }
+catch { store.setData({ sessions: [], documents: [] }); } // first run: start empty (sample sessions are only for the web demo)
 // ponytail: rewrites the whole file per change; move to SQLite once there are thousands of sessions.
 const save = () => fs.writeFileSync(DB, JSON.stringify(store.getData()));
 
@@ -38,7 +44,7 @@ function autoAnswer(s, text) {
     if (s.ended || !s.autoAnswer || s.mode === 'mock' || !p.texts.some(store.isQuestion)) return;
     const question = p.texts.join(' ');
     streamAnswer(null, s, question, 'auto-ai-help', ai.answerPrompt(s, resumeOf(s), question));
-  }, 1500);
+  }, 400); // short: a pause was already detected before the speech was sent
 }
 function subscribe(req, res) {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -100,9 +106,29 @@ async function streamReply(res, prompt, onDone, onProgress = () => {}, onFail = 
   }
 }
 
+// Settings: which AI answers, and the keys. Keys are written to .env on this computer and never sent back
+// to any page (the page only learns which keys are saved). The app restarts to use new settings.
+const KEY_VARS = { GROQ_API_KEY: 'Groq key', GEMINI_API_KEY: 'Gemini key', OPENAI_API_KEY: 'OpenAI key', ANTHROPIC_API_KEY: 'Claude key' };
+async function settings(req, res) {
+  if (req.method === 'GET') return send(res, 200, { provider: ai.provider.id, keys: Object.fromEntries(Object.keys(KEY_VARS).map((k) => [k, !!process.env[k]])) });
+  if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed.' });
+  const body = await readJson(req);
+  if (!['gemini', 'openai', 'claude'].includes(body.provider)) throw new Error('Pick Gemini, OpenAI or Claude.');
+  const lines = ['# aiHelper settings. These keys stay on this computer; never share this file.', `AI_PROVIDER=${body.provider}`];
+  for (const [k, label] of Object.entries(KEY_VARS)) {
+    const typed = typeof body.keys?.[k] === 'string' ? body.keys[k].trim() : '';
+    if (typed && !/^[\x21-\x7e]{10,400}$/.test(typed)) throw new Error(`That ${label} doesn't look right. Paste the whole key, with no spaces.`);
+    const value = typed || process.env[k]; // left empty: keep the key already saved
+    if (value) lines.push(`${k}=${value}`);
+  }
+  fs.writeFileSync(ENV_FILE, lines.join('\n') + '\n', { mode: 0o600 });
+  return send(res, 200, { ok: true });
+}
+
 async function route(req, res, u) {
   const m = u.pathname.match(/^\/api\/(sessions|documents)(?:\/(\d+))?(?:\/([a-z-]+))?$/);
   if (u.pathname === '/api/status') return send(res, 200, { ai: ai.hasCredentials(), provider: ai.provider.name, keyVar: ai.provider.keyVar, models: ai.provider.models });
+  if (u.pathname === '/api/settings') return settings(req, res);
   if (u.pathname === '/api/events') return subscribe(req, res);
   if (!m) return send(res, 404, { error: 'Not found.' });
   const [, kind, id, action] = m, M = req.method;
@@ -143,19 +169,26 @@ async function route(req, res, u) {
   if (M !== 'POST') return send(res, 405, { error: 'Method not allowed.' });
   switch (action) {
     case 'start': { store.start(id); save(); liveId = s.id; publish('session', snapshot(s)); return send(res, 200, s); }
-    case 'end': { store.end(id); save(); meetingAudio.delete(s.id); publish('session', snapshot(s)); return send(res, 200, s); }
-    case 'transcribe': { // a stretch of meeting audio (what the other people said) from the overlay
-      const { audio } = await readJson(req, 3e6);
+    case 'end': {
+      const { skipNotes } = await readJson(req);
+      store.end(id); save(); meetingAudio.delete(s.id); publish('session', snapshot(s));
+      // Write the AI notes here, unless the Chrome page is writing them itself (it streams them on screen).
+      if (!skipNotes && s.transcript.length && ai.hasCredentials()) streamReply(null, ai.notesPrompt(s, resumeOf(s)), (notes) => { s.notes = notes; });
+      return send(res, 200, s);
+    }
+    case 'transcribe': { // a stretch of speech from the overlay: the meeting ("them") or your microphone ("me")
+      const { audio, speaker = 'them' } = await readJson(req, 3e6);
       if (typeof audio !== 'string' || audio.length < 100 || !/^[A-Za-z0-9+/=]+$/.test(audio)) throw new Error('Send the audio as base64 WAV.');
+      if (speaker !== 'them' && speaker !== 'me') throw new Error('Speaker must be "them" or "me".');
       if (s.ended) return send(res, 409, { error: 'This call has ended.' });
-      if (!meetingAudio.has(s.id)) { meetingAudio.add(s.id); publish('session', snapshot(s)); } // the app now treats your mic as you
-      let said;
-      try { said = await ai.transcribe(audio); } catch (e) { return send(res, 502, { error: ai.errorMessage(e) }); }
-      if (!said) return send(res, 200, { line: null });
-      const line = store.addLine(id, { speaker: 'them', text: said.slice(0, 2000) }); save();
+      if (speaker === 'them' && !meetingAudio.has(s.id)) { meetingAudio.add(s.id); publish('session', snapshot(s)); } // the Chrome page now treats its mic as you
+      let said, heardBy;
+      try { ({ text: said, by: heardBy } = await ai.transcribe(audio, s.language)); } catch (e) { return send(res, 502, { error: ai.errorMessage(e) }); }
+      if (!said) return send(res, 200, { line: null, heardBy });
+      const line = store.addLine(id, { speaker, text: said.slice(0, 2000) }); save();
       publish('line', { sessionId: s.id, line });
-      autoAnswer(s, line.text);
-      return send(res, 201, { line });
+      if (speaker === 'them') autoAnswer(s, line.text);
+      return send(res, 201, { line, heardBy });
     }
     case 'lines': {
       const line = store.addLine(id, await readJson(req)); save();
@@ -197,8 +230,14 @@ async function route(req, res, u) {
   return send(res, 404, { error: 'Not found.' });
 }
 
+// Only this app's own pages may use it: the host must be this computer (stops DNS-rebinding tricks), and
+// a request from a web page must come from the app's own address (stops other websites sending commands).
+const LOCAL = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`]);
+const allowed = (req) => LOCAL.has(req.headers.host) && (!req.headers.origin || LOCAL.has(req.headers.origin.replace(/^https?:\/\//, '')));
+
 http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
+  if (!allowed(req)) return send(res, 403, { error: 'Only aiHelper on this computer can use this.' });
   if (u.pathname.startsWith('/api/')) {
     try { return await route(req, res, u); }
     catch (e) { if (!res.headersSent) send(res, e.notFound ? 404 : 400, { error: e.message }); return; }
@@ -206,7 +245,7 @@ http.createServer(async (req, res) => {
   if (STATIC[u.pathname]) { res.setHeader('content-type', STATIC[u.pathname]); return res.end(file(u.pathname.slice(1))); }
   res.setHeader('content-type', 'text/html; charset=utf-8');
   res.end('<!doctype html>' + file('index.html')); // index.html has no doctype so it can also publish as an Artifact
-}).listen(process.env.PORT || 3000, () => {
-  console.log(`http://localhost:${process.env.PORT || 3000}`);
-  console.log(`AI: ${ai.provider.name}${ai.hasCredentials() ? '' : ` (not set up: put your key in ${ai.provider.keyVar} in .env)`}`);
+}).listen(PORT, '127.0.0.1', () => { // this computer only, not the network
+  console.log(`http://localhost:${PORT}`);
+  console.log(`AI: ${ai.provider.name}${ai.hasCredentials() ? '' : ` (not set up: add your key in Settings, or ${ai.provider.keyVar} in ${ENV_FILE})`}`);
 });

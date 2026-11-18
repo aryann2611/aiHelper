@@ -22,7 +22,7 @@
   kbd{font:11px var(--sans);color:var(--muted)}
   .muted{color:var(--muted)} .grow{flex:1}
 
-  #overlay{position:absolute;width:min(880px,calc(100vw - 16px));display:flex;flex-direction:column;gap:8px}
+  #shell{position:absolute;width:min(880px,calc(100vw - 16px));display:flex;flex-direction:column;gap:8px}
   .solid{background:var(--glass);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 28px hsl(0 0% 0% / .35)}
 
   .toolbar{display:flex;align-items:center;gap:6px;padding:7px 8px;user-select:none}
@@ -34,6 +34,20 @@
   .timer{font-variant-numeric:tabular-nums;color:var(--muted);padding:0 6px;flex:none}
   .icon{padding:0 9px}
   .exit{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:600}
+  .exit.confirm{background:hsl(0 72% 36%);border-color:#fff}
+  body.idle .call-only{display:none} /* answer, screenshot, chat, listening and the timer only during a call */
+  .brand-name{font-weight:600;padding:0 4px}
+  body:not(.idle) .brand-name{display:none}
+  .ended{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:8px 8px 8px 14px;font-size:13px}
+  .ended b{font-weight:600}
+  body:not(.idle) .idle-only{display:none}
+  .settings{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;padding:12px 14px;font-size:13px}
+  .settings .wide{grid-column:1/-1}
+  .settings label{display:flex;flex-direction:column;gap:4px;color:var(--muted)}
+  .settings input,.settings select{height:32px;border-radius:10px;border:1px solid var(--border);background:var(--glass-strong);color:var(--fg);font:inherit;padding:0 10px;min-width:0}
+  .settings a{color:var(--live)}
+  .settings-foot{display:flex;justify-content:flex-end;gap:8px}
+  @media (max-width:600px){.settings{grid-template-columns:1fr}}
 
   .questions{display:flex;align-items:center;gap:8px;padding:6px 8px}
   .wave{display:flex;align-items:flex-end;gap:2px;height:16px;flex:none;padding:0 6px}
@@ -48,6 +62,11 @@
   .chip:hover{background:var(--raised);border-color:var(--border)}
   .chip:last-child{background:var(--raised);border-color:var(--border)}
 
+  .start{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px}
+  .start b{font-weight:600;padding:0 4px}
+  .new-fields{display:flex;flex-wrap:wrap;gap:8px;flex:1;min-width:0}
+  .start input,.start select{height:32px;border-radius:999px;border:1px solid var(--border);background:var(--glass-strong);color:var(--fg);font:inherit;padding:0 12px;min-width:0}
+  .start input{flex:1 1 140px}
   .chat-form{display:flex;gap:8px;padding:8px}
   .chat-form input{flex:1;min-width:0;height:32px;border-radius:999px;border:1px solid var(--border);background:var(--glass-strong);color:var(--fg);font:inherit;padding:0 14px}
   .brand{background:var(--brand);border-color:var(--brand);color:var(--brand-fg);font-weight:600}
@@ -69,20 +88,54 @@
   .flash{align-self:center;padding:8px 12px;border-radius:10px;background:var(--fg);color:hsl(240 10% 4%);font-size:13px;max-width:100%}
 </style>
 <body>
-<div id="overlay">
+<div id="shell">
   <header class="toolbar solid">
     <span class="dot" id="dot"></span>
-    <button id="listen" class="icon listen" title="Hear the meeting: what the other people say (your computer's sound)" aria-pressed="false">🎧 <span id="listen-label">Listen</span></button>
-    <button id="answer" title="Answer what was just asked">Answer <kbd>Ctrl ↵</kbd></button>
-    <button id="shot" title="Answer what's on your screen">Screenshot <kbd>Ctrl ⇧ ↵</kbd></button>
-    <button id="chat" class="dashed" title="Ask the AI directly">Chat <kbd>Ctrl ⇧ Space</kbd></button>
+    <span class="brand-name">aiHelper</span>
+    <button id="listen" class="icon listen call-only" title="Hear the meeting: what the other people say (your computer's sound)" aria-pressed="false">🎧 <span id="listen-label">Listen</span></button>
+    <button id="mic" class="icon listen call-only" title="Also write down what you say (your microphone). Use headphones so the meeting isn't heard twice." aria-pressed="false">🎤 <span id="mic-label">Me</span></button>
+    <button id="answer" class="call-only" title="Answer what was just asked">Answer <kbd>Ctrl ↵</kbd></button>
+    <button id="shot" class="call-only" title="Answer what's on your screen">Screenshot <kbd>Ctrl ⇧ ↵</kbd></button>
+    <button id="chat" class="dashed call-only" title="Ask the AI directly">Chat <kbd>Ctrl ⇧ Space</kbd></button>
     <span class="grow drag" id="drag" title="Drag to move">✥</span>
+    <button id="open-settings" class="icon idle-only" title="Settings: which AI answers, and your keys" aria-label="Settings">⚙</button>
     <button id="collapse" class="icon" aria-label="Collapse overlay" aria-expanded="true">▴</button>
-    <span class="timer" id="timer" title="Call time">⏱ 0:00</span>
+    <span class="timer call-only" id="timer" title="Call time">⏱ 0:00</span>
     <button id="smaller" class="icon" aria-label="Smaller text">A−</button>
     <button id="bigger" class="icon" aria-label="Bigger text">A+</button>
-    <button id="exit" class="exit" title="End the call and close the overlay">Exit</button>
+    <button id="exit" class="exit" title="End the call (AI notes are written automatically)">Exit</button>
   </header>
+  <div class="ended solid" id="ended-card" role="status" hidden>
+    <span>✓ <b>Call ended</b> · <span id="ended-text"></span></span>
+    <span class="grow"></span>
+    <button id="open-notes" title="Open the app in your browser to read the notes and transcript">Open notes</button>
+    <button id="ended-close" class="icon" aria-label="Dismiss">✕</button>
+  </div>
+  <form class="settings solid" id="settings" hidden>
+    <div class="wide"><b style="color:var(--fg)">Settings</b> · <span id="settings-note">Your keys are saved only on this computer.</span></div>
+    <label>Answers by
+      <select id="set-provider"><option value="claude">Claude</option><option value="gemini">Google Gemini (free)</option><option value="openai">OpenAI</option></select></label>
+    <label>Claude key <a href="https://console.anthropic.com/settings/keys" target="_blank">get one</a>
+      <input type="password" id="set-ANTHROPIC_API_KEY" autocomplete="off" spellcheck="false"></label>
+    <label>Groq key: free, hears the meeting fastest <a href="https://console.groq.com/keys" target="_blank">get one</a>
+      <input type="password" id="set-GROQ_API_KEY" autocomplete="off" spellcheck="false"></label>
+    <label>Gemini key: free, backup for hearing <a href="https://aistudio.google.com/apikey" target="_blank">get one</a>
+      <input type="password" id="set-GEMINI_API_KEY" autocomplete="off" spellcheck="false"></label>
+    <label>OpenAI key <a href="https://platform.openai.com/api-keys" target="_blank">get one</a>
+      <input type="password" id="set-OPENAI_API_KEY" autocomplete="off" spellcheck="false"></label>
+    <div class="settings-foot wide"><span class="muted grow" style="align-self:center">Leave a box empty to keep the key already saved.</span>
+      <button type="button" id="settings-cancel">Cancel</button><button class="brand" id="settings-save">Save and restart</button></div>
+  </form>
+  <form class="start solid" id="start-panel" hidden>
+    <b>Start a call</b>
+    <select id="start-session" aria-label="Session"><option value="">New call…</option></select>
+    <span class="new-fields" id="new-fields">
+      <select id="start-mode" aria-label="Type"><option value="interview">Interview</option><option value="regular">Regular call</option></select>
+      <input id="start-title" maxlength="80" placeholder="Role, e.g. Backend Engineer" aria-label="Role" autocomplete="off">
+      <input id="start-company" maxlength="80" placeholder="Company" aria-label="Company" autocomplete="off">
+    </span>
+    <button class="brand" id="start-btn">Start call</button>
+  </form>
   <div class="questions solid" id="questions">
     <span class="wave" id="wave" aria-hidden="true"><i></i><i></i><i></i></span>
     <div class="chips" id="chips"></div>
@@ -125,10 +178,10 @@ function reportPanels() {
     .map((el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round); });
   window.overlay?.setPanels(rects, dragging);
 }
-new ResizeObserver(reportPanels).observe(document.getElementById('overlay')); // panels grew, shrank, opened or closed
+new ResizeObserver(reportPanels).observe(document.getElementById('shell')); // panels grew, shrank, opened or closed
 
 /* ---------- position: drag the toolbar; remembered between runs ---------- */
-const box = $('overlay');
+const box = $('shell');
 function place(x, y) {
   const r = box.getBoundingClientRect();
   x = Math.round(Math.min(Math.max(0, x), innerWidth - r.width));
@@ -159,11 +212,28 @@ window.addEventListener('resize', () => { pos = place(pos.x, pos.y); });
 
 /* ---------- rendering ---------- */
 function renderTop() {
-  $('dot').classList.toggle('live', !!isLive());
+  const live = !!isLive();
+  $('dot').classList.toggle('live', live);
   $('dot').title = state.session ? `${state.session.title} · ${state.session.company}${state.session.ended ? ' (ended)' : ''}` : 'No call';
-  $('wave').classList.toggle('on', audio.on);
   $('auto').checked = !!state.session?.autoAnswer;
-  $('auto').disabled = !isLive();
+  $('auto').disabled = !live;
+  document.body.classList.toggle('idle', !live);
+  if (!exitConfirm) $('exit').textContent = live ? 'End call' : 'Exit';
+  $('exit').title = live ? 'End the call (AI notes are written automatically)' : 'Close the overlay';
+  // After a call: say it ended, how long it was, and where the notes are.
+  const s = state.session, showEnded = !!s?.ended && !endedDismissed;
+  $('ended-card').hidden = !showEnded;
+  if (showEnded) $('ended-text').textContent = `${s.title} · ${s.company} · ${s.durationMin || 1} min. AI notes are being written.`;
+  renderLayout(); renderListen();
+}
+// No call: "Start a call" (plus the last answers, if any). During a call: question chips and answers.
+function renderLayout() {
+  const live = !!isLive();
+  $('start-panel').hidden = live;
+  if (live) $('settings').hidden = true; // settings are for between calls
+  $('questions').hidden = !live || !expanded;
+  $('panel').hidden = !expanded || (!live && !state.answers.length);
+  if (!expanded || !live) $('chat-form').hidden = true;
 }
 function renderChips() {
   const s = state.session;
@@ -178,7 +248,7 @@ function renderAnswer() {
   const a = state.answers[state.index], body = $('answer-body');
   const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
   body.innerHTML = !a
-    ? `<p class="muted">${isLive() ? 'Answers appear here. Press Answer when a question is asked, take a Screenshot, or Chat.' : 'Start a call in the app. Answers appear here.'}</p>`
+    ? `<p class="muted">${isLive() ? 'Answers appear here. Press Answer when a question is asked, take a Screenshot, or Chat.' : 'Start a call to get answers here.'}</p>`
     : `${a.kind === 'analyze-screen' ? '' : `<p class="q">${esc(a.question)}</p>`}${a.error ? `<p class="err">${esc(a.error)}</p>` : (md(a.text) || '<p class="muted">Thinking…</p>')}`;
   if (a && !a.done && nearBottom) body.scrollTop = body.scrollHeight; // follow a streaming answer
   $('meta').textContent = a ? `${KIND[a.kind] || 'Answer'} · ${time(a.at)}` : '';
@@ -197,12 +267,19 @@ events.addEventListener('session', (e) => {
   if (s.id !== state.session?.id) {
     state.answers = s.answers.map((a, i) => ({ key: `saved-${i}`, question: a.question, text: a.answer, kind: a.kind || 'ai-help', at: a.at, done: true }));
     state.index = state.answers.length - 1; state.follow = true; state.chipsFrom = 0;
-    audio.userStopped = false;
+    meeting.userStopped = false;
   }
+  if (isLive() && s.ended) { exitLockedUntil = Date.now() + 1500; endedDismissed = false; resetExit(); } // just ended: see End call below
+  if (!s.ended) endedDismissed = true; // a new call hides the last "Call ended" card
   state.session = s; state.lines = s.transcript;
-  // Hear the meeting as soon as a call is live (not for mock interviews: the AI interviewer is the other side).
-  if (isLive() && s.mode !== 'mock' && !audio.on && !audio.starting && !audio.userStopped) window.overlay?.startAudio();
-  if (!isLive()) stopMeetingAudio();
+  if (isLive() && s.mode !== 'mock') {
+    // Hear the meeting as soon as a call is live (not for mock interviews: the AI interviewer is the other side).
+    if (!meeting.on && !meeting.starting && !meeting.userStopped) window.overlay?.startAudio();
+    if (micWanted && !mine.on && !mine.starting) startMic();
+  } else {
+    stopListener(meeting); stopListener(mine);
+    loadStartList();
+  }
   renderAll();
 });
 events.addEventListener('line', (e) => {
@@ -228,59 +305,78 @@ setInterval(() => {
   $('timer').textContent = `⏱ ${h ? `${h}:${String(m).padStart(2, '0')}` : m}:${sec}`;
 }, 1000);
 
-/* ---------- meeting audio: hear what the other people say, write it down, answer questions ---------- */
+/* ---------- hearing: the meeting (them) and, if you turn it on, your microphone (me) ---------- */
 const RATE = 16000; // speech-to-text needs no more than this
-const audio = { stream: null, ctx: null, on: false, starting: false, userStopped: false, queue: Promise.resolve(), warnedAt: 0 };
+const listener = (speaker) => ({ speaker, stream: null, ctx: null, on: false, starting: false, userStopped: false, piece: null, quiet: 0, background: 0.003, lastFrame: null });
+const meeting = listener('them'), mine = listener('me');
+let sendQueue = Promise.resolve(), warnedAt = 0, micWanted = false, heardBy = null;
+try { micWanted = localStorage.getItem('overlay-mic') === 'on'; } catch {}
+
 function renderListen() {
-  $('listen').setAttribute('aria-pressed', String(audio.on));
-  $('listen-label').textContent = audio.starting ? 'Starting…' : audio.on ? 'Listening' : 'Listen';
-  $('wave').classList.toggle('on', audio.on);
+  $('listen').setAttribute('aria-pressed', String(meeting.on));
+  $('listen-label').textContent = meeting.starting ? 'Starting…' : meeting.on ? 'Listening' : 'Listen';
+  $('mic').setAttribute('aria-pressed', String(mine.on));
+  $('mic-label').textContent = mine.starting ? 'Starting…' : 'Me';
+  $('wave').classList.toggle('on', meeting.on || mine.on);
 }
-async function startMeetingAudio() {
-  if (audio.on || audio.starting) return;
-  if (!window.overlay) return flash('Meeting audio works in the desktop overlay (npm run overlay).');
-  if (!isLive()) return flash('No live call. Start one in the app first.');
-  audio.starting = true; renderListen();
+async function startListener(l, getStream, failMessage) {
+  if (l.on || l.starting) return;
+  if (!window.overlay) return flash('Listening works in the desktop overlay (npm run overlay).');
+  if (!isLive()) return flash('No live call. Start one with “Start a call”.');
+  l.starting = true; renderListen();
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); // the app hands over the computer's sound
-    stream.getVideoTracks().forEach((t) => t.stop()); // only the sound is needed
+    // Windows can be slow to hand over the sound; give up after 15 s instead of saying "Starting…" forever.
+    const pending = getStream();
+    pending.then((s) => { if (!l.on && !l.starting) s.getTracks().forEach((t) => t.stop()); }, () => {}); // arrived after giving up
+    const stream = await Promise.race([pending, new Promise((_, no) => setTimeout(() => no(new Error('timed out')), 15000))]);
     if (!stream.getAudioTracks().length) throw new Error('no sound');
     const ctx = new AudioContext({ sampleRate: RATE });
-    const node = ctx.createScriptProcessor(4096, 1, 1), silent = ctx.createGain();
+    const node = ctx.createScriptProcessor(2048, 1, 1), silent = ctx.createGain();
     silent.gain.value = 0; // the processor must be connected to play, but nothing should be heard twice
     ctx.createMediaStreamSource(stream).connect(node); node.connect(silent); silent.connect(ctx.destination);
-    node.onaudioprocess = (e) => onSound(e.inputBuffer.getChannelData(0));
-    stream.getAudioTracks()[0].onended = stopMeetingAudio;
-    Object.assign(audio, { stream, ctx, on: true });
-  } catch { flash('Couldn’t start hearing the meeting. Press 🎧 Listen to try again.'); }
-  audio.starting = false; renderListen();
+    node.onaudioprocess = (e) => onSound(l, e.inputBuffer.getChannelData(0));
+    stream.getAudioTracks()[0].onended = () => stopListener(l);
+    Object.assign(l, { stream, ctx, on: true });
+  } catch { flash(failMessage); }
+  l.starting = false; renderListen();
 }
-function stopMeetingAudio() {
-  if (!audio.on) return;
-  audio.stream.getTracks().forEach((t) => t.stop());
-  audio.ctx.close().catch(() => {});
-  Object.assign(audio, { stream: null, ctx: null, on: false });
-  piece = null; $('wave').classList.remove('speaking'); renderListen();
+function stopListener(l) {
+  if (!l.on) return;
+  l.stream.getTracks().forEach((t) => t.stop());
+  l.ctx.close().catch(() => {});
+  Object.assign(l, { stream: null, ctx: null, on: false, piece: null });
+  $('wave').classList.remove('speaking'); renderListen();
+}
+// Meeting audio: the desktop app hands over the computer's sound (what the others say, even in headphones).
+function startMeetingAudio() {
+  return startListener(meeting, async () => {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    s.getVideoTracks().forEach((t) => t.stop()); // only the sound is needed
+    return s;
+  }, 'Couldn’t start hearing the meeting. Press 🎧 Listen to try again.');
+}
+function startMic() {
+  return startListener(mine, () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }),
+    'Couldn’t use your microphone. Check that Windows allows apps to use it, then press 🎤 Me again.');
 }
 
 // Cut the sound into pieces of speech: a piece starts when it gets louder than the background and ends
-// after a short pause (about 0.8 s) or at 15 s. Each piece is sent to be written down.
-let piece = null, quietFrames = 0, background = 0.003, lastFrame = null;
-function onSound(samples) {
+// after a short pause (about 0.5 s) or at 10 s. Each piece is sent to be written down. (Frames are 0.128 s.)
+function onSound(l, samples) {
   let sum = 0;
   for (const v of samples) sum += v * v;
-  const level = Math.sqrt(sum / samples.length), loud = level > Math.max(0.01, background * 3);
-  if (!loud && !piece) background = background * 0.95 + level * 0.05; // keep learning how loud "quiet" is
-  if (loud && !piece) piece = { frames: lastFrame ? [lastFrame] : [], loudFrames: 0 }; // keep a little sound from before the first word
-  lastFrame = new Float32Array(samples);
-  if (!piece) return;
-  piece.frames.push(lastFrame);
-  if (loud) { piece.loudFrames++; quietFrames = 0; } else quietFrames++;
-  $('wave').classList.toggle('speaking', loud);
-  const seconds = (piece.frames.length * samples.length) / RATE;
-  if (quietFrames >= 3 || seconds >= 15) {
-    const done = piece; piece = null; quietFrames = 0;
-    if (done.loudFrames >= 3) sendSpeech(done.frames); // skip coughs and clicks under ~0.8 s
+  const level = Math.sqrt(sum / samples.length), loud = level > Math.max(0.01, l.background * 3);
+  if (!loud && !l.piece) l.background = l.background * 0.95 + level * 0.05; // keep learning how loud "quiet" is
+  if (loud && !l.piece) l.piece = { frames: l.lastFrame ? [l.lastFrame] : [], loudFrames: 0 }; // keep a little sound from before the first word
+  l.lastFrame = new Float32Array(samples);
+  if (!l.piece) return;
+  l.piece.frames.push(l.lastFrame);
+  if (loud) { l.piece.loudFrames++; l.quiet = 0; } else l.quiet++;
+  $('wave').classList.toggle('speaking', !!(meeting.piece || mine.piece));
+  const seconds = (l.piece.frames.length * samples.length) / RATE;
+  if (l.quiet >= 4 || seconds >= 10) {
+    const done = l.piece; l.piece = null; l.quiet = 0;
+    if (done.loudFrames >= 5) sendSpeech(done.frames, l.speaker); // skip coughs and clicks under ~0.6 s
   }
 }
 function toWavBase64(frames) {
@@ -297,23 +393,64 @@ function toWavBase64(frames) {
   return btoa(bin);
 }
 // One piece at a time, so lines stay in the order they were said. The text comes back as a 'line' event.
-function sendSpeech(frames) {
+function sendSpeech(frames, speaker) {
   const id = state.session?.id;
   if (!id || !isLive()) return;
   const wav = toWavBase64(frames);
-  audio.queue = audio.queue.then(async () => {
+  sendQueue = sendQueue.then(async () => {
     try {
-      const r = await fetch(`/api/sessions/${id}/transcribe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ audio: wav }) });
-      if (!r.ok && Date.now() - audio.warnedAt > 15000) { // don't repeat the same warning for every sentence
-        audio.warnedAt = Date.now();
-        flash((await r.json().catch(() => ({}))).error || 'Couldn’t write down what was said.');
+      const r = await fetch(`/api/sessions/${id}/transcribe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ audio: wav, speaker }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok && Date.now() - warnedAt > 15000) { // don't repeat the same warning for every sentence
+        warnedAt = Date.now();
+        flash(j.error || 'Couldn’t write down what was said.');
       }
+      // Tell the user when writing down speech moves to another service (e.g. Groq's free limit reached).
+      if (j.heardBy && heardBy && j.heardBy !== heardBy) flash(`Now writing down speech with ${j.heardBy} (${heardBy} is busy or at its free limit).`);
+      if (j.heardBy) heardBy = j.heardBy;
     } catch {}
   });
 }
 $('listen').onclick = () => {
-  if (audio.on) { audio.userStopped = true; stopMeetingAudio(); }
-  else { audio.userStopped = false; startMeetingAudio(); }
+  if (meeting.on) { meeting.userStopped = true; stopListener(meeting); }
+  else { meeting.userStopped = false; startMeetingAudio(); }
+};
+$('mic').onclick = () => {
+  micWanted = !mine.on;
+  try { localStorage.setItem('overlay-mic', micWanted ? 'on' : 'off'); } catch {}
+  if (micWanted) startMic(); else stopListener(mine);
+};
+
+/* ---------- start a call right here: pick a saved session or type a new one ---------- */
+async function loadStartList() {
+  try {
+    const r = await (await fetch('/api/sessions?limit=30&sort=createdAt_desc')).json();
+    const keep = $('start-session').value;
+    $('start-session').innerHTML = '<option value="">New call…</option>' + r.data.filter((s) => s.mode !== 'mock') // mock interviews need the app's voice
+      .map((s) => `<option value="${s.id}">${esc(s.title)} · ${esc(s.company)}${s.mode === 'regular' ? ' (call)' : ''}</option>`).join('');
+    $('start-session').value = keep;
+  } catch {}
+  $('new-fields').hidden = !!$('start-session').value;
+}
+$('start-session').onchange = () => { $('new-fields').hidden = !!$('start-session').value; };
+$('start-panel').onsubmit = async (e) => {
+  e.preventDefault();
+  let id = $('start-session').value;
+  $('start-btn').disabled = true;
+  try {
+    if (!id) {
+      const title = $('start-title').value.trim(), company = $('start-company').value.trim();
+      if (!title || !company) return flash('Add the role and company, or pick a saved session.');
+      const r = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, company, mode: $('start-mode').value }) });
+      const made = await r.json();
+      if (!r.ok) return flash(made.error || 'Couldn’t create the call. Try again.');
+      id = made.id;
+    }
+    const r = await fetch(`/api/sessions/${id}/start`, { method: 'POST' }); // the app then sends the live call to this overlay
+    if (!r.ok) return flash((await r.json().catch(() => ({}))).error || 'Couldn’t start the call. Try again.');
+    $('start-title').value = $('start-company').value = ''; $('start-session').value = '';
+  } catch { flash('Can’t reach the app. Is it running?'); }
+  finally { $('start-btn').disabled = false; }
 };
 
 /* ---------- actions ---------- */
@@ -324,7 +461,7 @@ async function post(path, body) {
     await r.text(); // the answer itself arrives through the event stream
   } catch { flash('Can’t reach the app. Is it running?'); }
 }
-function needCall() { if (isLive()) return true; flash('No live call. Start one in the app first.'); return false; }
+function needCall() { if (isLive()) return true; flash('No live call. Start one with “Start a call”.'); return false; }
 
 // Answer what the other person said since the last answer (or their last line, or a clicked question).
 function answerNow(question) {
@@ -351,10 +488,9 @@ function closeChat() { $('chat-form').hidden = true; }
 let expanded = true;
 function expand(open) {
   expanded = open;
-  $('questions').hidden = $('panel').hidden = !open;
-  if (!open) $('chat-form').hidden = true;
   $('collapse').textContent = open ? '▴' : '▾';
   $('collapse').setAttribute('aria-expanded', String(open));
+  renderLayout();
 }
 const clearChips = () => { state.chipsFrom = Date.now(); renderChips(); };
 const clearAnswers = () => { state.answers = []; state.index = -1; state.follow = true; renderAnswer(); };
@@ -386,10 +522,54 @@ let size = 15;
 const setSize = (d) => { size = Math.min(22, Math.max(12, size + d)); document.documentElement.style.setProperty('--size', size + 'px'); };
 $('smaller').onclick = () => setSize(-1);
 $('bigger').onclick = () => setSize(1);
+// End call asks once ("Confirm end", for 3 s) so a stray click can't end a call. When the call ends this
+// button becomes Exit in the same spot, so Exit ignores clicks for 1.5 s: a double click won't close the app.
+let exitConfirm = null, exitLockedUntil = 0, endedDismissed = true;
+function resetExit() { clearTimeout(exitConfirm); exitConfirm = null; $('exit').classList.remove('confirm'); }
 $('exit').onclick = async () => {
-  if (isLive()) await fetch(`/api/sessions/${state.session.id}/end`, { method: 'POST' }).catch(() => {});
-  window.close();
+  if (!isLive()) { if (Date.now() >= exitLockedUntil) window.close(); return; }
+  if (!exitConfirm) {
+    $('exit').textContent = 'Confirm end'; $('exit').classList.add('confirm');
+    exitConfirm = setTimeout(() => { resetExit(); renderTop(); }, 3000);
+    return;
+  }
+  resetExit();
+  exitLockedUntil = Date.now() + 1500;
+  await fetch(`/api/sessions/${state.session.id}/end`, { method: 'POST' }).catch(() => flash('Can’t reach the app. Is it running?')); // the app writes the AI notes
 };
+$('ended-close').onclick = () => { endedDismissed = true; renderTop(); };
+
+/* ---------- settings: which AI answers, and the keys (stored by the app on this computer only) ---------- */
+const KEY_IDS = ['ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'GEMINI_API_KEY', 'OPENAI_API_KEY'];
+async function openSettings(note) {
+  try {
+    const s = await (await fetch('/api/settings')).json(); // says which keys are saved, never the keys themselves
+    $('set-provider').value = s.provider;
+    for (const k of KEY_IDS) { $('set-' + k).value = ''; $('set-' + k).placeholder = s.keys[k] ? 'Saved ✓ (leave empty to keep)' : 'Paste key'; }
+  } catch { return flash('Can’t reach the app. Is it running?'); }
+  $('settings-note').textContent = note || 'Your keys are saved only on this computer.';
+  $('settings').hidden = false;
+  $('set-' + ($('set-provider').value === 'claude' ? 'ANTHROPIC_API_KEY' : $('set-provider').value === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY')).focus();
+}
+$('open-settings').onclick = () => ($('settings').hidden ? openSettings() : ($('settings').hidden = true));
+$('settings-cancel').onclick = () => { $('settings').hidden = true; };
+$('settings').onsubmit = async (e) => {
+  e.preventDefault();
+  const keys = Object.fromEntries(KEY_IDS.map((k) => [k, $('set-' + k).value.trim()]));
+  $('settings-save').disabled = true;
+  try {
+    const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: $('set-provider').value, keys }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return flash(j.error || 'Couldn’t save the settings. Try again.');
+    for (const k of KEY_IDS) $('set-' + k).value = '';
+    if (window.overlay) { flash('Saved. Restarting…'); window.overlay.relaunch(); }
+    else { $('settings').hidden = true; flash('Saved. Restart aiHelper to use the new settings.'); }
+  } catch { flash('Can’t reach the app. Is it running?'); }
+  finally { $('settings-save').disabled = false; }
+};
+// First run (or no key for the chosen AI yet): open Settings straight away.
+fetch('/api/status').then((r) => r.json()).then((s) => { if (!s.ai) openSettings(`Add your ${s.provider} key to get answers. Your keys are saved only on this computer.`); }).catch(() => {});
+$('open-notes').onclick = () => (window.overlay ? window.overlay.openApp() : window.open('/', '_blank'));
 // Shortcuts that only apply while the overlay itself is focused (global ones live in overlay.js).
 document.addEventListener('keydown', (e) => {
   const typing = e.target.closest?.('input');
@@ -400,6 +580,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Backspace') { e.preventDefault(); e.shiftKey ? clearChips() : clearAnswers(); }
 });
 renderAll();
+loadStartList();
 </script>
 </body>
 </html>

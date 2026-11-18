@@ -5,3 +5,5 @@
 # Your sessions, transcripts and documents
 data.json
 node_modules/
+# Installers built by `npm run dist`
+dist/

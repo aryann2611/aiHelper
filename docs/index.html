@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>aiHelper</title>
+<meta name="description" content="aiHelper listens to your call, suggests what to say in a private overlay, writes notes afterwards and helps you practise interviews. Free download for Windows.">
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter+Tight:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a centred column; hero with the live overlay mock beside the download button; numbered setup steps
+     (a real sequence); feature grid; privacy and FAQ. One accent: the app's green. */
+  :root{
+    --bg:hsl(150 20% 98%);--fg:hsl(160 25% 9%);--muted:hsl(160 8% 38%);--line:hsl(150 12% 88%);--card:hsl(0 0% 100%);
+    --accent:hsl(142 72% 34%);--accent-fg:hsl(0 0% 100%);--accent-soft:hsl(142 60% 92%);
+    --glass:hsl(240 10% 6%);--glass-fg:hsl(240 6% 92%);--glass-muted:hsl(240 5% 62%);--live:hsl(92 85% 67%);
+    --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Inter Tight",ui-sans-serif,system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:hsl(160 14% 6%);--fg:hsl(150 10% 92%);--muted:hsl(150 6% 64%);--line:hsl(160 8% 18%);--card:hsl(160 12% 9%);
+    --accent:hsl(142 62% 48%);--accent-fg:hsl(150 60% 8%);--accent-soft:hsl(142 40% 14%);color-scheme:dark}}
+  :root[data-theme="dark"]{
+    --bg:hsl(160 14% 6%);--fg:hsl(150 10% 92%);--muted:hsl(150 6% 64%);--line:hsl(160 8% 18%);--card:hsl(160 12% 9%);
+    --accent:hsl(142 62% 48%);--accent-fg:hsl(150 60% 8%);--accent-soft:hsl(142 40% 14%);color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 var(--body)}
+  a{color:var(--accent)}
+  .wrap{max-width:1060px;margin:0 auto;padding-inline:20px}
+  nav{display:flex;align-items:center;gap:12px;padding-block:20px}
+  nav img{width:32px;height:32px;border-radius:8px}
+  nav b{font:800 20px var(--display);letter-spacing:-.01em}
+  nav .gh{margin-left:auto;font-size:15px;color:var(--muted);text-decoration:none}
+  nav .gh:hover{color:var(--fg)}
+
+  .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center;padding-block:40px 72px}
+  h1{font:800 clamp(40px,6vw,64px)/1.02 var(--display);letter-spacing:-.025em;margin:0;text-wrap:balance}
+  h1 em{font-style:normal;color:var(--accent)}
+  .lede{color:var(--muted);font-size:19px;max-width:34ch;margin:18px 0 28px}
+  .cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
+  .btn{display:inline-flex;align-items:center;gap:10px;height:52px;padding:0 24px;border-radius:999px;background:var(--accent);color:var(--accent-fg);font-weight:600;text-decoration:none;font-size:17px}
+  .btn:hover{filter:brightness(1.07)} .btn:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+  .btn svg{width:20px;height:20px}
+  .cta small{color:var(--muted);font-size:14px;line-height:1.4}
+
+  /* The overlay as it looks during a call */
+  .mock{position:relative;border-radius:22px;padding:22px;background:linear-gradient(140deg,hsl(250 40% 30%),hsl(200 45% 22%));box-shadow:0 30px 60px -20px hsl(160 30% 10% / .45);min-width:0}
+  .mock .bar,.mock .chips,.mock .ans{background:var(--glass);color:var(--glass-fg);border:1px solid hsl(0 0% 100% / .1);border-radius:14px;font-size:13px}
+  .mock .bar{display:flex;align-items:center;gap:6px;padding:7px 8px;overflow:hidden}
+  .mock .pill{border:1px solid hsl(0 0% 100% / .12);border-radius:999px;padding:3px 10px;white-space:nowrap}
+  .mock .dot{width:8px;height:8px;border-radius:50%;background:var(--live);flex:none;margin:0 4px}
+  .mock .end{margin-left:auto;background:hsl(0 72% 52%);border-color:transparent;color:#fff;font-weight:600}
+  .mock .chips{margin-top:8px;padding:8px 10px;display:flex;gap:6px;overflow:hidden}
+  .mock .chips .pill:last-child{background:hsl(0 0% 100% / .08)}
+  .mock .ans{margin-top:8px;padding:12px 14px;line-height:1.55}
+  .mock .q{color:var(--glass-muted);font-size:12px;margin:0 0 6px}
+  .mock pre{margin:8px 0 0;padding:10px 12px;border-radius:10px;background:hsl(240 10% 3%);font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--glass-fg);overflow-x:auto}
+  .mock pre i{font-style:normal;color:hsl(330 80% 72%)} .mock pre s{text-decoration:none;color:hsl(95 55% 68%)}
+  .mock .meta{display:flex;justify-content:space-between;color:var(--glass-muted);font-size:12px;margin-top:8px}
+  .mock .tag{position:absolute;right:16px;bottom:-14px;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px}
+
+  section{padding-block:64px;border-top:1px solid var(--line)}
+  h2{font:800 clamp(28px,4vw,38px)/1.1 var(--display);letter-spacing:-.02em;margin:0 0 10px;text-wrap:balance}
+  .sub{color:var(--muted);margin:0 0 32px;max-width:60ch}
+
+  .steps{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:s}
+  .steps li{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;counter-increment:s;min-width:0}
+  .steps li::before{content:counter(s);display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font:800 17px var(--display);margin-bottom:12px}
+  .steps h3{margin:0 0 6px;font-size:18px}
+  .steps p{margin:0;color:var(--muted);font-size:15.5px}
+  .keys{margin:10px 0 0;padding-left:18px;color:var(--muted);font-size:15px}
+
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:28px 32px}
+  .features h3{margin:0 0 4px;font-size:17px}
+  .features p{margin:0;color:var(--muted);font-size:15.5px}
+  .features kbd{font:13px ui-monospace,Consolas,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 5px;background:var(--card)}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:40px}
+  .note{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px}
+  .note h3{margin:0 0 8px;font-size:18px}
+  .note p,.note li{color:var(--muted);font-size:15.5px}
+  .note ul{padding-left:18px;margin:0}
+  details{border-bottom:1px solid var(--line);padding:14px 0}
+  summary{cursor:pointer;font-weight:600}
+  details p{color:var(--muted);margin:8px 0 0;font-size:15.5px}
+  footer{padding-block:40px;color:var(--muted);font-size:14px;border-top:1px solid var(--line)}
+
+  @media (max-width:860px){.hero,.two{grid-template-columns:1fr}.steps,.features{grid-template-columns:1fr}.hero{padding-block:16px 56px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><img src="icon.png" alt=""><b>aiHelper</b><a class="gh" href="https://github.com/aryann2611/aiHelper">Source on GitHub</a></nav>
+
+  <header class="hero">
+    <div>
+      <h1>Know what to say, <em>while the call is still going.</em></h1>
+      <p class="lede">aiHelper hears your meeting, writes down each question and suggests an answer in a small overlay only you can see. Afterwards it writes the notes.</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/aryann2611/aiHelper/releases/latest/download/aiHelper-Setup.exe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg>
+          Download for Windows</a>
+        <small>Free · Windows 10 (2004+) and 11, 64-bit<br>About 120 MB</small>
+      </div>
+    </div>
+    <div class="mock" aria-label="The aiHelper overlay during a call">
+      <div class="bar"><span class="dot"></span><span class="pill">🎧 Listening</span><span class="pill">Answer</span><span class="pill">Screenshot</span><span class="pill">Chat</span><span class="pill end">End call</span></div>
+      <div class="chips"><span class="pill">What does your team do?</span><span class="pill">How would you design a rate limiter?</span></div>
+      <div class="ans">
+        <p class="q">How would you design a rate limiter?</p>
+        I’d use a token bucket per user, stored in Redis so every server shares the same count:
+        <pre><i>def</i> allow(user):
+    tokens = redis.<i>decr</i>(<s>f"bucket:{user}"</s>)
+    <i>return</i> tokens >= 0</pre>
+        <div class="meta"><span>Answer (auto) · 2.4 s</span><span>1 / 2</span></div>
+      </div>
+      <span class="tag">Hidden from screen sharing</span>
+    </div>
+  </header>
+</div>
+
+<section>
+  <div class="wrap">
+    <h2>Set up in three steps</h2>
+    <p class="sub">No account and nothing else to install. aiHelper runs on your PC and talks to the AI with your keys.</p>
+    <ol class="steps">
+      <li><h3>Install</h3><p>Run <b>aiHelper-Setup.exe</b>. Windows may say “Windows protected your PC” because the app isn’t signed with a paid certificate: click <b>More info</b>, then <b>Run anyway</b>.</p></li>
+      <li><h3>Add your keys</h3><p>aiHelper opens <b>⚙ Settings</b> on first start. Paste:</p>
+        <ul class="keys">
+          <li><a href="https://console.groq.com/keys">Groq</a>: free, hears the meeting fastest</li>
+          <li><a href="https://aistudio.google.com/apikey">Gemini</a>: free, backup for hearing</li>
+          <li><a href="https://console.anthropic.com/settings/keys">Claude</a>: writes the answers (or choose Gemini for free answers)</li>
+        </ul></li>
+      <li><h3>Start a call</h3><p>Type the role and company in <b>Start a call</b>, join your meeting, and answers appear as questions are asked. Press <b>End call</b> for notes.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="sub">Everything happens in one small overlay you can drag anywhere. Clicks pass through it except on its buttons.</p>
+    <div class="features">
+      <div><h3>Hears the meeting</h3><p>Picks up what the other people say through your computer’s sound, even with headphones.</p></div>
+      <div><h3>Answers in about 2–3 seconds</h3><p>When a question is asked, an answer streams in. Or press <kbd>Ctrl</kbd> <kbd>Enter</kbd> any time.</p></div>
+      <div><h3>Reads your screen</h3><p><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Enter</kbd> answers what’s on screen: a coding problem, a slide, a form.</p></div>
+      <div><h3>Code that reads like code</h3><p>Programming answers come as coloured code blocks with a short explanation.</p></div>
+      <div><h3>Notes after every call</h3><p>A summary, the questions asked and follow-ups, plus the full transcript and “Ask AI” about the call.</p></div>
+      <div><h3>Practice interviews</h3><p>An AI interviewer asks questions out loud and scores your answers.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap two">
+    <div class="note">
+      <h3>Your keys and calls stay yours</h3>
+      <ul>
+        <li>Keys are saved only on your PC, in <code>%APPDATA%\aiHelper</code>. The download contains no keys.</li>
+        <li>aiHelper only answers to your own computer: not other devices, not websites.</li>
+        <li>During a call, speech and screenshots go to the AI services you chose, to be written down and answered.</li>
+      </ul>
+    </div>
+    <div>
+      <details><summary>Is it free?</summary><p>The app is free. Groq and Gemini have free plans that cover hearing your meetings. Claude answers are paid by whoever owns the Claude key.</p></details>
+      <details><summary>Why does Windows warn me?</summary><p>Apps without a paid code-signing certificate show “Windows protected your PC” the first time. Click More info, then Run anyway.</p></details>
+      <details><summary>Does it work on Mac?</summary><p>Not yet. aiHelper is for Windows 10 (version 2004 or later) and Windows 11.</p></details>
+      <details><summary>Can others see the overlay when I share my screen?</summary><p>No. Windows leaves the overlay out of screen sharing and screenshots. Do a quick test share in your meeting app to see it for yourself.</p></details>
+      <details><summary>How do I update?</summary><p>Download and run the latest installer from this page. Your settings and sessions are kept.</p></details>
+    </div>
+  </div>
+</section>
+
+<footer><div class="wrap">aiHelper · <a href="https://github.com/aryann2611/aiHelper">github.com/aryann2611/aiHelper</a></div></footer>
+</body>
+</html>

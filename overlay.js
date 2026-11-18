@@ -1,11 +1,14 @@
 // Desktop overlay: an invisible, always-on-top window over the whole screen.
 // Clicks pass through everywhere except on the overlay's own panels, and screen sharing can't see it.
-// Run with `npm run overlay`. Starts server.js too if it isn't already running.
+// Run with `npm run overlay` (or the installed aiHelper app). Starts server.js too if it isn't already running.
 const path = require('path');
-const { app, BrowserWindow, globalShortcut, screen, desktopCapturer, ipcMain, session } = require('electron');
+const { app, BrowserWindow, globalShortcut, screen, desktopCapturer, ipcMain, session, shell } = require('electron');
 
 const PORT = process.env.PORT || 3000;
 const URL = `http://localhost:${PORT}`;
+// The installed app keeps settings (keys) and sessions in %APPDATA%\aiHelper; the program folder is read-only.
+if (app.isPackaged) process.env.AIHELPER_DATA ??= app.getPath('userData');
+if (!app.requestSingleInstanceLock()) app.quit(); // one overlay at a time
 
 async function ensureServer() {
   try { await fetch(`${URL}/api/status`); } // already running in another terminal
@@ -55,6 +58,10 @@ app.whenReady().then(async () => {
   session.defaultSession.setDisplayMediaRequestHandler((_req, grant) => {
     desktopCapturer.getSources({ types: ['screen'] }).then((s) => grant({ video: s[0], audio: 'loopback' })).catch(() => grant({}));
   });
+  ipcMain.on('open-app', () => shell.openExternal(URL)); // "Open notes": the full app in your browser
+  ipcMain.on('relaunch', () => { app.relaunch(); app.exit(0); }); // new settings are read at start-up
+  // Links (e.g. "get one" next to each key) open in the browser, not in the overlay.
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   // Starting a capture needs a user gesture; this runs the page's start function as if one happened.
   ipcMain.on('start-audio', () => win.webContents.executeJavaScript('startMeetingAudio()', true).catch(() => {}));
 
