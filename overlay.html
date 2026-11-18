@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Answers overlay</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&display=swap">
+<style>
+  /* Layout: separate see-through panels (toolbar, question chips, answer) floating
+     over the screen. The window itself is transparent; only the panels take clicks. */
+  :root{--glass:hsl(240 10% 4% / .84);--glass-strong:hsl(240 10% 4% / .92);--raised:hsl(240 5% 16% / .9);--fg:hsl(240 5.9% 92%);
+    --muted:hsl(240 5% 66%);--border:hsl(0 0% 100% / .1);--brand:hsl(142.1 70.6% 45.3%);--brand-fg:hsl(144.9 80.4% 10%);
+    --live:hsl(92.1 85.7% 67.1%);--danger:hsl(0 72.2% 52%);--code-bg:hsl(240 10% 3% / .9);--tk-k:hsl(330 80% 72%);--tk-s:hsl(95 55% 68%);
+    --tk-n:hsl(205 85% 70%);--sans:"Inter Tight",ui-sans-serif,system-ui,sans-serif;--mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+    --size:15px;color-scheme:dark}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:transparent;overflow:hidden}
+  body{color:var(--fg);font:14px/1.45 var(--sans)}
+  [hidden]{display:none!important}
+  button{font:inherit;color:inherit;border:1px solid var(--border);background:var(--raised);border-radius:999px;height:30px;padding:0 12px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;flex:none}
+  button:hover:not(:disabled){border-color:hsl(0 0% 100% / .3)}
+  button:disabled{opacity:.4;cursor:default}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  kbd{font:11px var(--sans);color:var(--muted)}
+  .muted{color:var(--muted)} .grow{flex:1}
+
+  #overlay{position:absolute;width:min(880px,calc(100vw - 16px));display:flex;flex-direction:column;gap:8px}
+  .solid{background:var(--glass);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 28px hsl(0 0% 0% / .35)}
+
+  .toolbar{display:flex;align-items:center;gap:6px;padding:7px 8px;user-select:none}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none;margin:0 4px}
+  .dot.live{background:var(--live);box-shadow:0 0 0 3px hsl(92 85% 67% / .15)}
+  .dashed{border-style:dashed}
+  .drag{align-self:stretch;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:grab;min-width:40px}
+  .drag:active{cursor:grabbing}
+  .timer{font-variant-numeric:tabular-nums;color:var(--muted);padding:0 6px;flex:none}
+  .icon{padding:0 9px}
+  .exit{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:600}
+
+  .questions{display:flex;align-items:center;gap:8px;padding:6px 8px}
+  .wave{display:flex;align-items:flex-end;gap:2px;height:16px;flex:none;padding:0 6px}
+  .wave i{width:3px;height:30%;background:var(--muted);border-radius:2px}
+  .wave.on i{background:var(--live)}
+  .wave.speaking i{background:var(--brand)}
+  @media (prefers-reduced-motion:no-preference){.wave.speaking i{animation:bar 1s ease-in-out infinite}.wave.speaking i:nth-child(2){animation-delay:.2s}.wave.speaking i:nth-child(3){animation-delay:.4s}}
+  .listen[aria-pressed="true"]{border-color:var(--brand);color:var(--live)}
+  @keyframes bar{50%{height:100%}}
+  .chips{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+  .chip{background:none;border-color:transparent;height:28px;padding:0 8px;color:var(--fg)}
+  .chip:hover{background:var(--raised);border-color:var(--border)}
+  .chip:last-child{background:var(--raised);border-color:var(--border)}
+
+  .chat-form{display:flex;gap:8px;padding:8px}
+  .chat-form input{flex:1;min-width:0;height:32px;border-radius:999px;border:1px solid var(--border);background:var(--glass-strong);color:var(--fg);font:inherit;padding:0 14px}
+  .brand{background:var(--brand);border-color:var(--brand);color:var(--brand-fg);font-weight:600}
+
+  .panel{display:flex;flex-direction:column;max-height:var(--panel-max,70vh);min-height:0}
+  .panel-bar{display:flex;align-items:center;gap:6px;padding:8px}
+  .auto{display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:0 6px}
+  .auto input{accent-color:var(--brand)}
+  .answer{flex:1 1 auto;min-height:0;overflow-y:auto;padding:2px 16px 10px;font-size:var(--size);line-height:1.55}
+  .answer .q{margin:0 0 8px;color:var(--muted);font-size:.85em}
+  .answer .err{color:var(--danger)}
+  .md p{margin:6px 0} .md ul{margin:6px 0;padding-left:20px} .md li{margin:3px 0} .md h3{font-size:1em;margin:12px 0 4px}
+  .md code{font-family:var(--mono);font-size:.9em;background:var(--raised);border:1px solid var(--border);border-radius:6px;padding:0 5px}
+  .md pre.code{position:relative;margin:8px 0;padding:12px 14px;border-radius:12px;background:var(--code-bg);border:1px solid var(--border);overflow-x:auto;font:calc(var(--size) - 2px)/1.55 var(--mono)}
+  .md pre.code code{background:none;border:0;padding:0;font:inherit}
+  .md pre.code .lang{position:absolute;top:6px;right:10px;font:11px var(--sans);color:var(--muted)}
+  .tk-k{color:var(--tk-k)} .tk-s{color:var(--tk-s)} .tk-n{color:var(--tk-n)} .tk-c{color:var(--muted);font-style:italic}
+  .panel-foot{display:flex;align-items:center;gap:8px;padding:8px;border-top:1px solid var(--border);font-size:13px}
+  .flash{align-self:center;padding:8px 12px;border-radius:10px;background:var(--fg);color:hsl(240 10% 4%);font-size:13px;max-width:100%}
+</style>
+<body>
+<div id="overlay">
+  <header class="toolbar solid">
+    <span class="dot" id="dot"></span>
+    <button id="listen" class="icon listen" title="Hear the meeting: what the other people say (your computer's sound)" aria-pressed="false">🎧 <span id="listen-label">Listen</span></button>
+    <button id="answer" title="Answer what was just asked">Answer <kbd>Ctrl ↵</kbd></button>
+    <button id="shot" title="Answer what's on your screen">Screenshot <kbd>Ctrl ⇧ ↵</kbd></button>
+    <button id="chat" class="dashed" title="Ask the AI directly">Chat <kbd>Ctrl ⇧ Space</kbd></button>
+    <span class="grow drag" id="drag" title="Drag to move">✥</span>
+    <button id="collapse" class="icon" aria-label="Collapse overlay" aria-expanded="true">▴</button>
+    <span class="timer" id="timer" title="Call time">⏱ 0:00</span>
+    <button id="smaller" class="icon" aria-label="Smaller text">A−</button>
+    <button id="bigger" class="icon" aria-label="Bigger text">A+</button>
+    <button id="exit" class="exit" title="End the call and close the overlay">Exit</button>
+  </header>
+  <div class="questions solid" id="questions">
+    <span class="wave" id="wave" aria-hidden="true"><i></i><i></i><i></i></span>
+    <div class="chips" id="chips"></div>
+    <button id="clear-chips" title="Clear the question list">Clear <kbd>Ctrl ⇧ ⌫</kbd></button>
+  </div>
+  <form class="chat-form solid" id="chat-form" hidden>
+    <input id="chat-input" maxlength="2000" placeholder="Ask the AI anything (Esc to close)" autocomplete="off" aria-label="Message the AI">
+    <button class="brand">Send</button>
+  </form>
+  <section class="panel solid" id="panel" aria-label="Answers">
+    <div class="panel-bar">
+      <button id="prev" class="icon" aria-label="Previous answer">← <kbd>Ctrl ←</kbd></button>
+      <button id="next" class="icon" aria-label="Next answer">→ <kbd>Ctrl →</kbd></button>
+      <span id="pos" class="muted"></span>
+      <span class="grow"></span>
+      <label class="auto"><input type="checkbox" id="auto"> Auto Answer</label>
+      <button id="clear-answers" title="Clear answers from the overlay">Clear <kbd>Ctrl ⌫</kbd></button>
+    </div>
+    <div class="answer md" id="answer-body" aria-live="polite"></div>
+    <div class="panel-foot"><button id="copy" class="icon">Copy</button><span class="grow"></span><span id="meta" class="muted"></span></div>
+  </section>
+  <div class="flash solid" id="flash" role="status" hidden></div>
+</div>
+<script src="md.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const KIND = { 'ai-help': 'Answer', 'auto-ai-help': 'Answer (auto)', 'direct-message': 'Chat', 'analyze-screen': 'Screenshot' }; // label shown under each answer
+const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const state = { session: null, lines: [], answers: [], index: -1, follow: true, chipsFrom: 0 };
+let flashTimer;
+function flash(msg) { $('flash').textContent = msg; $('flash').hidden = false; clearTimeout(flashTimer); flashTimer = setTimeout(() => ($('flash').hidden = true), 3000); }
+const isLive = () => state.session && !state.session.ended;
+
+/* ---------- clicks: the overlay only takes the mouse over its panels ---------- */
+// The desktop app does the checking (overlay.js); this tells it where the panels are whenever they change.
+let dragging = false;
+function reportPanels() {
+  const rects = [...document.querySelectorAll('.solid')].filter((el) => el.offsetParent !== null) // skips hidden panels
+    .map((el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round); });
+  window.overlay?.setPanels(rects, dragging);
+}
+new ResizeObserver(reportPanels).observe(document.getElementById('overlay')); // panels grew, shrank, opened or closed
+
+/* ---------- position: drag the toolbar; remembered between runs ---------- */
+const box = $('overlay');
+function place(x, y) {
+  const r = box.getBoundingClientRect();
+  x = Math.round(Math.min(Math.max(0, x), innerWidth - r.width));
+  y = Math.round(Math.min(Math.max(0, y), innerHeight - 48));
+  box.style.left = `${x}px`; box.style.top = `${y}px`;
+  box.style.setProperty('--panel-max', `${Math.max(160, innerHeight - y - 150)}px`); // keep the answer on screen
+  reportPanels();
+  return { x, y };
+}
+let pos;
+try { pos = JSON.parse(localStorage.getItem('overlay-pos')); } catch {}
+pos = place(pos?.x ?? (innerWidth - box.offsetWidth) / 2, pos?.y ?? 16);
+$('drag').addEventListener('pointerdown', (e) => {
+  dragging = true; reportPanels(); // keep the mouse while dragging, even if the pointer outruns the toolbar
+  const dx = e.clientX - pos.x, dy = e.clientY - pos.y, el = $('drag');
+  el.setPointerCapture(e.pointerId);
+  const move = (ev) => { pos = place(ev.clientX - dx, ev.clientY - dy); };
+  const end = () => { // runs once however the drag ends (released, cancelled by Windows, or capture lost)
+    if (!dragging) return;
+    dragging = false; reportPanels();
+    el.removeEventListener('pointermove', move);
+    try { localStorage.setItem('overlay-pos', JSON.stringify(pos)); } catch {}
+  };
+  el.addEventListener('pointermove', move);
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(type, end, { once: true });
+});
+window.addEventListener('resize', () => { pos = place(pos.x, pos.y); });
+
+/* ---------- rendering ---------- */
+function renderTop() {
+  $('dot').classList.toggle('live', !!isLive());
+  $('dot').title = state.session ? `${state.session.title} · ${state.session.company}${state.session.ended ? ' (ended)' : ''}` : 'No call';
+  $('wave').classList.toggle('on', audio.on);
+  $('auto').checked = !!state.session?.autoAnswer;
+  $('auto').disabled = !isLive();
+}
+function renderChips() {
+  const s = state.session;
+  const qs = state.lines.filter((l) => l.speaker === 'them' && Date.parse(l.at) > state.chipsFrom).slice(-10);
+  $('chips').innerHTML = !s ? '<span class="muted">Waiting for a call. Start one in the app.</span>'
+    : s.ended ? `<span class="muted">${esc(s.title)} · call ended</span>`
+    : qs.length ? qs.map((l) => `<button class="chip" data-q="${esc(l.text)}" title="Answer this">${esc(l.text)}</button>`).join('')
+    : `<span class="muted">${esc(s.title)} · ${esc(s.company)} · listening for questions</span>`;
+  $('chips').scrollLeft = $('chips').scrollWidth;
+}
+function renderAnswer() {
+  const a = state.answers[state.index], body = $('answer-body');
+  const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+  body.innerHTML = !a
+    ? `<p class="muted">${isLive() ? 'Answers appear here. Press Answer when a question is asked, take a Screenshot, or Chat.' : 'Start a call in the app. Answers appear here.'}</p>`
+    : `${a.kind === 'analyze-screen' ? '' : `<p class="q">${esc(a.question)}</p>`}${a.error ? `<p class="err">${esc(a.error)}</p>` : (md(a.text) || '<p class="muted">Thinking…</p>')}`;
+  if (a && !a.done && nearBottom) body.scrollTop = body.scrollHeight; // follow a streaming answer
+  $('meta').textContent = a ? `${KIND[a.kind] || 'Answer'} · ${time(a.at)}` : '';
+  $('pos').textContent = a ? `${state.index + 1} / ${state.answers.length}` : '';
+  $('prev').disabled = state.index <= 0;
+  $('next').disabled = state.index >= state.answers.length - 1;
+  $('copy').disabled = !a?.text;
+}
+const renderAll = () => { renderTop(); renderChips(); renderAnswer(); };
+function show(i) { state.index = Math.max(0, Math.min(state.answers.length - 1, i)); state.follow = state.index === state.answers.length - 1; $('answer-body').scrollTop = 0; renderAnswer(); }
+
+/* ---------- live updates from the app ---------- */
+const events = new EventSource('/api/events');
+events.addEventListener('session', (e) => {
+  const s = JSON.parse(e.data);
+  if (s.id !== state.session?.id) {
+    state.answers = s.answers.map((a, i) => ({ key: `saved-${i}`, question: a.question, text: a.answer, kind: a.kind || 'ai-help', at: a.at, done: true }));
+    state.index = state.answers.length - 1; state.follow = true; state.chipsFrom = 0;
+    audio.userStopped = false;
+  }
+  state.session = s; state.lines = s.transcript;
+  // Hear the meeting as soon as a call is live (not for mock interviews: the AI interviewer is the other side).
+  if (isLive() && s.mode !== 'mock' && !audio.on && !audio.starting && !audio.userStopped) window.overlay?.startAudio();
+  if (!isLive()) stopMeetingAudio();
+  renderAll();
+});
+events.addEventListener('line', (e) => {
+  const { sessionId, line } = JSON.parse(e.data);
+  if (sessionId !== state.session?.id) return;
+  state.lines = [...state.lines, line].slice(-30); renderChips();
+});
+events.addEventListener('answer', (e) => {
+  const a = JSON.parse(e.data);
+  if (a.sessionId !== state.session?.id) return;
+  let item = state.answers.find((x) => x.key === a.key);
+  if (!item) { item = { key: a.key, at: a.at }; state.answers.push(item); if (state.follow) state.index = state.answers.length - 1; }
+  Object.assign(item, { question: a.question, kind: a.kind, text: a.text ?? item.text, error: a.error, done: a.done });
+  renderAnswer();
+});
+events.onerror = () => { $('dot').classList.remove('live'); $('dot').title = 'Reconnecting to the app…'; };
+events.onopen = () => renderAll();
+
+setInterval(() => {
+  const s = state.session;
+  const ms = !s ? 0 : (s.durationMin || 0) * 6e4 + (isLive() && s.liveSince ? Date.now() - Date.parse(s.liveSince) : 0);
+  const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, sec = String(t % 60).padStart(2, '0');
+  $('timer').textContent = `⏱ ${h ? `${h}:${String(m).padStart(2, '0')}` : m}:${sec}`;
+}, 1000);
+
+/* ---------- meeting audio: hear what the other people say, write it down, answer questions ---------- */
+const RATE = 16000; // speech-to-text needs no more than this
+const audio = { stream: null, ctx: null, on: false, starting: false, userStopped: false, queue: Promise.resolve(), warnedAt: 0 };
+function renderListen() {
+  $('listen').setAttribute('aria-pressed', String(audio.on));
+  $('listen-label').textContent = audio.starting ? 'Starting…' : audio.on ? 'Listening' : 'Listen';
+  $('wave').classList.toggle('on', audio.on);
+}
+async function startMeetingAudio() {
+  if (audio.on || audio.starting) return;
+  if (!window.overlay) return flash('Meeting audio works in the desktop overlay (npm run overlay).');
+  if (!isLive()) return flash('No live call. Start one in the app first.');
+  audio.starting = true; renderListen();
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); // the app hands over the computer's sound
+    stream.getVideoTracks().forEach((t) => t.stop()); // only the sound is needed
+    if (!stream.getAudioTracks().length) throw new Error('no sound');
+    const ctx = new AudioContext({ sampleRate: RATE });
+    const node = ctx.createScriptProcessor(4096, 1, 1), silent = ctx.createGain();
+    silent.gain.value = 0; // the processor must be connected to play, but nothing should be heard twice
+    ctx.createMediaStreamSource(stream).connect(node); node.connect(silent); silent.connect(ctx.destination);
+    node.onaudioprocess = (e) => onSound(e.inputBuffer.getChannelData(0));
+    stream.getAudioTracks()[0].onended = stopMeetingAudio;
+    Object.assign(audio, { stream, ctx, on: true });
+  } catch { flash('Couldn’t start hearing the meeting. Press 🎧 Listen to try again.'); }
+  audio.starting = false; renderListen();
+}
+function stopMeetingAudio() {
+  if (!audio.on) return;
+  audio.stream.getTracks().forEach((t) => t.stop());
+  audio.ctx.close().catch(() => {});
+  Object.assign(audio, { stream: null, ctx: null, on: false });
+  piece = null; $('wave').classList.remove('speaking'); renderListen();
+}
+
+// Cut the sound into pieces of speech: a piece starts when it gets louder than the background and ends
+// after a short pause (about 0.8 s) or at 15 s. Each piece is sent to be written down.
+let piece = null, quietFrames = 0, background = 0.003, lastFrame = null;
+function onSound(samples) {
+  let sum = 0;
+  for (const v of samples) sum += v * v;
+  const level = Math.sqrt(sum / samples.length), loud = level > Math.max(0.01, background * 3);
+  if (!loud && !piece) background = background * 0.95 + level * 0.05; // keep learning how loud "quiet" is
+  if (loud && !piece) piece = { frames: lastFrame ? [lastFrame] : [], loudFrames: 0 }; // keep a little sound from before the first word
+  lastFrame = new Float32Array(samples);
+  if (!piece) return;
+  piece.frames.push(lastFrame);
+  if (loud) { piece.loudFrames++; quietFrames = 0; } else quietFrames++;
+  $('wave').classList.toggle('speaking', loud);
+  const seconds = (piece.frames.length * samples.length) / RATE;
+  if (quietFrames >= 3 || seconds >= 15) {
+    const done = piece; piece = null; quietFrames = 0;
+    if (done.loudFrames >= 3) sendSpeech(done.frames); // skip coughs and clicks under ~0.8 s
+  }
+}
+function toWavBase64(frames) {
+  const n = frames.reduce((a, f) => a + f.length, 0), view = new DataView(new ArrayBuffer(44 + n * 2));
+  const text = (at, s) => { for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i)); };
+  text(0, 'RIFF'); view.setUint32(4, 36 + n * 2, true); text(8, 'WAVE'); text(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, RATE, true);
+  view.setUint32(28, RATE * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, 'data'); view.setUint32(40, n * 2, true);
+  let at = 44;
+  for (const f of frames) for (const v of f) { view.setInt16(at, Math.max(-1, Math.min(1, v)) * 0x7fff, true); at += 2; }
+  const bytes = new Uint8Array(view.buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+// One piece at a time, so lines stay in the order they were said. The text comes back as a 'line' event.
+function sendSpeech(frames) {
+  const id = state.session?.id;
+  if (!id || !isLive()) return;
+  const wav = toWavBase64(frames);
+  audio.queue = audio.queue.then(async () => {
+    try {
+      const r = await fetch(`/api/sessions/${id}/transcribe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ audio: wav }) });
+      if (!r.ok && Date.now() - audio.warnedAt > 15000) { // don't repeat the same warning for every sentence
+        audio.warnedAt = Date.now();
+        flash((await r.json().catch(() => ({}))).error || 'Couldn’t write down what was said.');
+      }
+    } catch {}
+  });
+}
+$('listen').onclick = () => {
+  if (audio.on) { audio.userStopped = true; stopMeetingAudio(); }
+  else { audio.userStopped = false; startMeetingAudio(); }
+};
+
+/* ---------- actions ---------- */
+async function post(path, body) {
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    if (!r.ok) return flash((await r.json().catch(() => ({}))).error || 'Something went wrong. Try again.');
+    await r.text(); // the answer itself arrives through the event stream
+  } catch { flash('Can’t reach the app. Is it running?'); }
+}
+function needCall() { if (isLive()) return true; flash('No live call. Start one in the app first.'); return false; }
+
+// Answer what the other person said since the last answer (or their last line, or a clicked question).
+function answerNow(question) {
+  if (!needCall()) return;
+  const lastAt = Math.max(0, ...state.answers.map((a) => Date.parse(a.at) || 0));
+  const fresh = state.lines.filter((l) => l.speaker === 'them' && Date.parse(l.at) > lastAt).map((l) => l.text).join(' ');
+  const q = question || fresh || [...state.lines].reverse().find((l) => l.speaker === 'them')?.text;
+  if (!q) return flash('Nothing to answer yet. Wait for a question, or use Chat.');
+  state.follow = true;
+  post(`/api/sessions/${state.session.id}/answer`, { question: q, kind: 'ai-help' });
+}
+async function takeScreenshot() {
+  if (!needCall()) return;
+  if (!window.overlay) return flash('Screenshots work in the desktop overlay (npm run overlay).');
+  flash('Reading your screen…');
+  let image;
+  try { image = await window.overlay.screenshot(); } catch { return flash('Couldn’t capture the screen.'); }
+  state.follow = true;
+  post(`/api/sessions/${state.session.id}/screenshot`, { image });
+}
+function openChat() { expand(true); $('chat-form').hidden = false; $('chat-input').focus(); }
+function closeChat() { $('chat-form').hidden = true; }
+
+let expanded = true;
+function expand(open) {
+  expanded = open;
+  $('questions').hidden = $('panel').hidden = !open;
+  if (!open) $('chat-form').hidden = true;
+  $('collapse').textContent = open ? '▴' : '▾';
+  $('collapse').setAttribute('aria-expanded', String(open));
+}
+const clearChips = () => { state.chipsFrom = Date.now(); renderChips(); };
+const clearAnswers = () => { state.answers = []; state.index = -1; state.follow = true; renderAnswer(); };
+
+$('answer').onclick = () => answerNow();
+$('shot').onclick = takeScreenshot;
+$('chat').onclick = () => ($('chat-form').hidden ? openChat() : closeChat());
+$('chips').onclick = (e) => { const q = e.target.closest('[data-q]')?.dataset.q; if (q) answerNow(q); };
+$('chat-form').onsubmit = (e) => {
+  e.preventDefault();
+  const v = $('chat-input').value.trim();
+  if (!v || !needCall()) return;
+  $('chat-input').value = '';
+  state.follow = true;
+  post(`/api/sessions/${state.session.id}/answer`, { question: v, kind: 'direct-message' });
+};
+$('prev').onclick = () => show(state.index - 1);
+$('next').onclick = () => show(state.index + 1);
+$('clear-chips').onclick = clearChips;
+$('clear-answers').onclick = clearAnswers;
+$('auto').onchange = (e) => fetch(`/api/sessions/${state.session.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ autoAnswer: e.target.checked }) })
+  .then((r) => { if (!r.ok) throw 0; }).catch(() => { e.target.checked = !e.target.checked; flash('Couldn’t change Auto Answer. Try again.'); });
+$('copy').onclick = () => {
+  const a = state.answers[state.index];
+  navigator.clipboard.writeText(a?.text || '').then(() => flash('Copied'), () => flash('Couldn’t copy. Select the text instead.'));
+};
+$('collapse').onclick = () => expand(!expanded);
+let size = 15;
+const setSize = (d) => { size = Math.min(22, Math.max(12, size + d)); document.documentElement.style.setProperty('--size', size + 'px'); };
+$('smaller').onclick = () => setSize(-1);
+$('bigger').onclick = () => setSize(1);
+$('exit').onclick = async () => {
+  if (isLive()) await fetch(`/api/sessions/${state.session.id}/end`, { method: 'POST' }).catch(() => {});
+  window.close();
+};
+// Shortcuts that only apply while the overlay itself is focused (global ones live in overlay.js).
+document.addEventListener('keydown', (e) => {
+  const typing = e.target.closest?.('input');
+  if (e.key === 'Escape' && !$('chat-form').hidden) return closeChat();
+  if (!e.ctrlKey || typing) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); show(state.index - 1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); show(state.index + 1); }
+  if (e.key === 'Backspace') { e.preventDefault(); e.shiftKey ? clearChips() : clearAnswers(); }
+});
+renderAll();
+</script>
+</body>
+</html>

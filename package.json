@@ -1,0 +1,20 @@
+{
+  "name": "aihelper",
+  "private": true,
+  "description": "A private AI call assistant: hears your meeting, suggests answers in an overlay hidden from screen sharing, writes notes, and runs mock interviews.",
+  "scripts": {
+    "start": "node server.js",
+    "overlay": "electron overlay.js",
+    "test": "node test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "electron": "^45.3.4"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.10.0",
+    "openai": "^7.59.0"
+  }
+}
