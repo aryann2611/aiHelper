@@ -1,7 +1,7 @@
 {
   "name": "aihelper",
   "productName": "aiHelper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "A private AI call assistant: hears your meeting, suggests answers in an overlay hidden from screen sharing, writes notes, and runs mock interviews.",
   "author": "aryann2611",

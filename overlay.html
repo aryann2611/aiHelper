@@ -67,6 +67,9 @@
   .new-fields{display:flex;flex-wrap:wrap;gap:8px;flex:1;min-width:0}
   .start input,.start select{height:32px;border-radius:999px;border:1px solid var(--border);background:var(--glass-strong);color:var(--fg);font:inherit;padding:0 12px;min-width:0}
   .start input{flex:1 1 140px}
+  .resume-row{display:flex;gap:8px;flex:1 1 100%;min-width:0}
+  .start textarea{flex:1 1 100%;min-height:52px;border-radius:12px;border:1px solid var(--border);background:var(--glass-strong);color:var(--fg);font:inherit;padding:7px 12px;resize:vertical}
+  .start select:focus-visible,.start textarea:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   .chat-form{display:flex;gap:8px;padding:8px}
   .chat-form input{flex:1;min-width:0;height:32px;border-radius:999px;border:1px solid var(--border);background:var(--glass-strong);color:var(--fg);font:inherit;padding:0 14px}
   .brand{background:var(--brand);border-color:var(--brand);color:var(--brand-fg);font-weight:600}
@@ -133,6 +136,13 @@
       <select id="start-mode" aria-label="Type"><option value="interview">Interview</option><option value="regular">Regular call</option></select>
       <input id="start-title" maxlength="80" placeholder="Role, e.g. Backend Engineer" aria-label="Role" autocomplete="off">
       <input id="start-company" maxlength="80" placeholder="Company" aria-label="Company" autocomplete="off">
+      <span class="resume-row">
+        <select id="start-resume" aria-label="Resume" title="The AI answers from this resume"><option value="">No resume</option></select>
+        <button type="button" id="start-upload" title="Add a resume: PDF, .txt or .md">Upload resume</button>
+        <input type="file" id="start-file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" hidden>
+      </span>
+      <textarea id="start-context" maxlength="6000" rows="2" aria-label="Notes for the AI"
+        placeholder="What the AI should know: about you, the company, the job description…"></textarea>
     </span>
     <button class="brand" id="start-btn">Start call</button>
   </form>
@@ -431,8 +441,40 @@ async function loadStartList() {
     $('start-session').value = keep;
   } catch {}
   $('new-fields').hidden = !!$('start-session').value;
+  loadResumes($('start-resume').value);
 }
 $('start-session').onchange = () => { $('new-fields').hidden = !!$('start-session').value; };
+
+// Resume and notes for the AI: answers are grounded in them. The newest resume is picked by default.
+async function loadResumes(pick) {
+  try {
+    const docs = (await (await fetch('/api/documents')).json()).filter((d) => d.kind === 'resume');
+    $('start-resume').innerHTML = '<option value="">No resume</option>' + docs.map((d) => `<option value="${d.id}">📄 ${esc(d.name)}</option>`).join('');
+    $('start-resume').value = docs.some((d) => String(d.id) === String(pick)) ? pick : String(docs[0]?.id ?? '');
+  } catch {}
+}
+const toBase64 = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
+$('start-upload').onclick = () => $('start-file').click();
+$('start-file').onchange = async () => {
+  const f = $('start-file').files[0]; $('start-file').value = '';
+  if (!f) return;
+  if (f.size > 10e6) return flash('That file is over 10 MB. Try a smaller PDF.');
+  const pdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
+  const body = { name: f.name.replace(/\.[^.]+$/, '').slice(0, 120) || 'Resume', kind: 'resume' };
+  $('start-upload').disabled = true; $('start-upload').textContent = pdf ? 'Reading PDF…' : 'Adding…';
+  try {
+    if (pdf) body.pdfBase64 = await toBase64(f); else body.text = await f.text();
+    const r = await fetch('/api/documents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) return flash(d.error || 'Couldn’t add that resume. Try again.');
+    await loadResumes(d.id);
+    flash('Resume added. Answers will use it.');
+  } catch { flash('Couldn’t read that file. Try a PDF or .txt file.'); }
+  finally { $('start-upload').disabled = false; $('start-upload').textContent = 'Upload resume'; }
+};
+// The notes are kept for the next call, so they're typed once.
+try { $('start-context').value = localStorage.getItem('overlay-context') || ''; } catch {}
+$('start-context').oninput = () => { try { localStorage.setItem('overlay-context', $('start-context').value); } catch {} };
 $('start-panel').onsubmit = async (e) => {
   e.preventDefault();
   let id = $('start-session').value;
@@ -441,7 +483,8 @@ $('start-panel').onsubmit = async (e) => {
     if (!id) {
       const title = $('start-title').value.trim(), company = $('start-company').value.trim();
       if (!title || !company) return flash('Add the role and company, or pick a saved session.');
-      const r = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, company, mode: $('start-mode').value }) });
+      const r = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+        title, company, mode: $('start-mode').value, context: $('start-context').value, resumeId: Number($('start-resume').value) || null }) });
       const made = await r.json();
       if (!r.ok) return flash(made.error || 'Couldn’t create the call. Try again.');
       id = made.id;

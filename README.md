@@ -18,7 +18,9 @@ the AI services you chose.
    - [Groq](https://console.groq.com/keys) (free): hears the meeting
    - [Gemini](https://aistudio.google.com/apikey) (free): backup for hearing when Groq's free limit is reached
    - [Claude](https://console.anthropic.com/settings/keys): writes the answers
-3. Press **Start a call** in the overlay, join your meeting, and answers appear as questions are asked.
+3. In the overlay's **Start a call**, type the role and company, press **Upload resume**, and add a few lines
+   the AI should know (about you, the company, the job description). Join your meeting, and answers appear as
+   questions are asked.
 
 Keys are saved only in `%APPDATA%\aiHelper` on that PC. The download contains no keys.
 
